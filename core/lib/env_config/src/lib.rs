@@ -20,11 +20,11 @@ mod observability;
 mod proof_data_handler;
 mod snapshots_creator;
 mod utils;
-mod witness_generator;
 
 mod genesis;
 #[cfg(test)]
 mod test_utils;
+mod vm_runner;
 mod wallets;
 
 pub trait FromEnv: Sized {

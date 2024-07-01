@@ -1,13 +1,13 @@
-# zkSync chain parameters
+# ZKsync chain parameters
 
 [chain.eth]
 # Name of the used Ethereum network
 network = "localhost"
-# Name of current zkSync network
+# Name of current ZKsync network
 # Used for Sentry environment
 zksync_network = "localhost"
-# ID of current zkSync network treated as ETH network ID.
-# Used to distinguish zkSync from other Web3-capable networks.
+# ID of current ZKsync network treated as ETH network ID.
+# Used to distinguish ZKsync from other Web3-capable networks.
 zksync_network_id = 270
 
 [chain.state_keeper]
@@ -18,9 +18,10 @@ transaction_slots = 250
 
 # 2^50, the maximal allowed gas limit in a batch.
 max_allowed_l2_tx_gas_limit = 1125899906842624
-block_commit_deadline_ms = 2500
+block_commit_deadline_ms = 5000
 miniblock_commit_deadline_ms = 1000
 miniblock_seal_queue_capacity = 10
+miniblock_max_payload_size=1000000
 # Max gas that can used to include single block in aggregated operation
 max_single_tx_gas = 6000000
 
@@ -77,10 +78,10 @@ max_gas_per_batch = 200000000
 max_pubdata_per_batch = 100000
 
 # The version of the fee model to use.
-# - `V1`, the first model that was used in zkSync Era. In this fee model, the pubdata price must be pegged to the L1 gas price.
+# - `V1`, the first model that was used in ZKsync Era. In this fee model, the pubdata price must be pegged to the L1 gas price.
 # Also, the fair L2 gas price is expected to only include the proving/computation price for the operator and not the costs that come from
 # processing the batch on L1.
-# - `V2`, the second model that was used in zkSync Era. There the pubdata price might be independent from the L1 gas price. Also,
+# - `V2`, the second model that was used in ZKsync Era. There the pubdata price might be independent from the L1 gas price. Also,
 # The fair L2 gas price is expected to both the proving/computation price for the operator and the costs that come from
 # processing the batch on L1.
 fee_model_version = "V1"
@@ -89,11 +90,8 @@ fee_model_version = "V1"
 validation_computational_gas_limit = 300000
 save_call_traces = true
 
-virtual_blocks_interval = 1
-virtual_blocks_per_miniblock = 1
-
-bootloader_hash = "0x0100089d6cf001d52b9e64572fa9b3555211f56a2ad66784f495c4192a88b477"
-default_aa_hash = "0x01000563ee5d0abdf9fc65f748a700d2c377aadebc16d5bf21105f8a94eff028"
+bootloader_hash = "0x010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e"
+default_aa_hash = "0x01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32"
 
 [chain.operations_manager]
 # Sleep time when there is no new input data

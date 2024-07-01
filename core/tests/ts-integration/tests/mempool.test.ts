@@ -3,7 +3,7 @@
  * scheduled, processed and/or postponed.
  */
 import { TestMaster } from '../src/index';
-import * as zksync from 'zksync-web3';
+import * as zksync from 'zksync-ethers';
 
 describe('Tests for the mempool behavior', () => {
     let testMaster: TestMaster;
@@ -109,10 +109,17 @@ describe('Tests for the mempool behavior', () => {
         // but should be rejected by the state-keeper (checked later).
         const delayedTx = await poorBob.sendTransaction({
             to: poorBob.address,
-            nonce: nonce + 1
+            nonce: nonce + 1,
+            type: 0
         });
 
-        await expect(poorBob.sendTransaction({ to: poorBob.address, nonce })).toBeAccepted();
+        await expect(
+            poorBob.sendTransaction({
+                to: poorBob.address,
+                nonce,
+                type: 0
+            })
+        ).toBeAccepted();
 
         // We don't have a good check that tx was indeed rejected.
         // Most that we can do is to ensure that tx wasn't mined for some time.
@@ -130,7 +137,7 @@ describe('Tests for the mempool behavior', () => {
 });
 
 /**
- * Sends a valid zkSync transaction with a certain nonce.
+ * Sends a valid ZKsync transaction with a certain nonce.
  * What transaction does is assumed to be not important besides the fact that it should be accepted.
  *
  * @param wallet Wallet to send transaction from.

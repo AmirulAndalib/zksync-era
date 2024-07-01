@@ -1,4 +1,4 @@
-//! Data access layer (DAL) for zkSync Era.
+//! Data access layer (DAL) for ZKsync Era.
 
 // Linter settings.
 #![warn(clippy::cast_lossless)]
@@ -7,53 +7,56 @@ pub use sqlx::{types::BigDecimal, Error as SqlxError};
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
     connection::Connection,
-    connection_pool::ConnectionPool,
+    connection_pool::{ConnectionPool, ConnectionPoolBuilder},
     error::{DalError, DalResult},
 };
 
 use crate::{
-    basic_witness_input_producer_dal::BasicWitnessInputProducerDal, blocks_dal::BlocksDal,
-    blocks_web3_dal::BlocksWeb3Dal, consensus_dal::ConsensusDal,
+    blocks_dal::BlocksDal, blocks_web3_dal::BlocksWeb3Dal, consensus_dal::ConsensusDal,
     contract_verification_dal::ContractVerificationDal, eth_sender_dal::EthSenderDal,
     events_dal::EventsDal, events_web3_dal::EventsWeb3Dal, factory_deps_dal::FactoryDepsDal,
     proof_generation_dal::ProofGenerationDal, protocol_versions_dal::ProtocolVersionsDal,
-    protocol_versions_web3_dal::ProtocolVersionsWeb3Dal,
+    protocol_versions_web3_dal::ProtocolVersionsWeb3Dal, pruning_dal::PruningDal,
     snapshot_recovery_dal::SnapshotRecoveryDal, snapshots_creator_dal::SnapshotsCreatorDal,
     snapshots_dal::SnapshotsDal, storage_logs_dal::StorageLogsDal,
     storage_logs_dedup_dal::StorageLogsDedupDal, storage_web3_dal::StorageWeb3Dal,
-    sync_dal::SyncDal, system_dal::SystemDal, tokens_dal::TokensDal,
+    sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
+    tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
-    transactions_web3_dal::TransactionsWeb3Dal,
+    transactions_web3_dal::TransactionsWeb3Dal, vm_runner_dal::VmRunnerDal,
 };
 
-pub mod basic_witness_input_producer_dal;
 pub mod blocks_dal;
 pub mod blocks_web3_dal;
+pub mod consensus;
 pub mod consensus_dal;
 pub mod contract_verification_dal;
 pub mod eth_sender_dal;
 pub mod events_dal;
 pub mod events_web3_dal;
 pub mod factory_deps_dal;
+pub mod helpers;
+pub mod metrics;
 mod models;
 pub mod proof_generation_dal;
 pub mod protocol_versions_dal;
 pub mod protocol_versions_web3_dal;
+pub mod pruning_dal;
 pub mod snapshot_recovery_dal;
 pub mod snapshots_creator_dal;
 pub mod snapshots_dal;
-mod storage_dal;
 pub mod storage_logs_dal;
 pub mod storage_logs_dedup_dal;
 pub mod storage_web3_dal;
 pub mod sync_dal;
 pub mod system_dal;
+pub mod tee_proof_generation_dal;
+pub mod tee_verifier_input_producer_dal;
 pub mod tokens_dal;
 pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
-
-pub mod metrics;
+pub mod vm_runner_dal;
 
 #[cfg(test)]
 mod tests;
@@ -73,7 +76,7 @@ where
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a>;
 
-    fn basic_witness_input_producer_dal(&mut self) -> BasicWitnessInputProducerDal<'_, 'a>;
+    fn tee_verifier_input_producer_dal(&mut self) -> TeeVerifierInputProducerDal<'_, 'a>;
 
     fn blocks_dal(&mut self) -> BlocksDal<'_, 'a>;
 
@@ -93,10 +96,6 @@ where
 
     fn storage_logs_dal(&mut self) -> StorageLogsDal<'_, 'a>;
 
-    #[deprecated(note = "Soft-removed in favor of `storage_logs`; don't use")]
-    #[allow(deprecated)]
-    fn storage_dal(&mut self) -> storage_dal::StorageDal<'_, 'a>;
-
     fn storage_logs_dedup_dal(&mut self) -> StorageLogsDedupDal<'_, 'a>;
 
     fn tokens_dal(&mut self) -> TokensDal<'_, 'a>;
@@ -113,6 +112,8 @@ where
 
     fn proof_generation_dal(&mut self) -> ProofGenerationDal<'_, 'a>;
 
+    fn tee_proof_generation_dal(&mut self) -> TeeProofGenerationDal<'_, 'a>;
+
     fn system_dal(&mut self) -> SystemDal<'_, 'a>;
 
     fn snapshots_dal(&mut self) -> SnapshotsDal<'_, 'a>;
@@ -120,6 +121,10 @@ where
     fn snapshots_creator_dal(&mut self) -> SnapshotsCreatorDal<'_, 'a>;
 
     fn snapshot_recovery_dal(&mut self) -> SnapshotRecoveryDal<'_, 'a>;
+
+    fn pruning_dal(&mut self) -> PruningDal<'_, 'a>;
+
+    fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -139,8 +144,8 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
         TransactionsWeb3Dal { storage: self }
     }
 
-    fn basic_witness_input_producer_dal(&mut self) -> BasicWitnessInputProducerDal<'_, 'a> {
-        BasicWitnessInputProducerDal { storage: self }
+    fn tee_verifier_input_producer_dal(&mut self) -> TeeVerifierInputProducerDal<'_, 'a> {
+        TeeVerifierInputProducerDal { storage: self }
     }
 
     fn blocks_dal(&mut self) -> BlocksDal<'_, 'a> {
@@ -179,10 +184,6 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
         StorageLogsDal { storage: self }
     }
 
-    fn storage_dal(&mut self) -> storage_dal::StorageDal<'_, 'a> {
-        storage_dal::StorageDal { storage: self }
-    }
-
     fn storage_logs_dedup_dal(&mut self) -> StorageLogsDedupDal<'_, 'a> {
         StorageLogsDedupDal { storage: self }
     }
@@ -215,6 +216,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
         ProofGenerationDal { storage: self }
     }
 
+    fn tee_proof_generation_dal(&mut self) -> TeeProofGenerationDal<'_, 'a> {
+        TeeProofGenerationDal { storage: self }
+    }
+
     fn system_dal(&mut self) -> SystemDal<'_, 'a> {
         SystemDal { storage: self }
     }
@@ -229,5 +234,13 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn snapshot_recovery_dal(&mut self) -> SnapshotRecoveryDal<'_, 'a> {
         SnapshotRecoveryDal { storage: self }
+    }
+
+    fn pruning_dal(&mut self) -> PruningDal<'_, 'a> {
+        PruningDal { storage: self }
+    }
+
+    fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a> {
+        VmRunnerDal { storage: self }
     }
 }

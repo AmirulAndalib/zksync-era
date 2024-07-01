@@ -102,6 +102,8 @@ impl ProtoRepr for proto::ProverGroup {
             group_10: read_vec(&self.group_10).context("group_10")?,
             group_11: read_vec(&self.group_11).context("group_11")?,
             group_12: read_vec(&self.group_12).context("group_12")?,
+            group_13: read_vec(&self.group_13).context("group_13")?,
+            group_14: read_vec(&self.group_14).context("group_14")?,
         })
     }
 
@@ -120,6 +122,8 @@ impl ProtoRepr for proto::ProverGroup {
             group_10: build_vec(&this.group_10),
             group_11: build_vec(&this.group_11),
             group_12: build_vec(&this.group_12),
+            group_13: build_vec(&this.group_13),
+            group_14: build_vec(&this.group_14),
         }
     }
 }
@@ -161,14 +165,7 @@ impl ProtoRepr for proto::WitnessGenerator {
                 .and_then(|x| Ok((*x).try_into()?))
                 .context("generation_timeout_in_secs")?,
             max_attempts: *required(&self.max_attempts).context("max_attempts")?,
-            blocks_proving_percentage: self
-                .blocks_proving_percentage
-                .map(|x| x.try_into())
-                .transpose()
-                .context("blocks_proving_percentage")?,
-            dump_arguments_for_blocks: self.dump_arguments_for_blocks.clone(),
             last_l1_batch_to_process: self.last_l1_batch_to_process,
-            force_process_block: self.force_process_block,
             shall_save_to_public_bucket: *required(&self.shall_save_to_public_bucket)
                 .context("shall_save_to_public_bucket")?,
             basic_generation_timeout_in_secs: self
@@ -186,6 +183,11 @@ impl ProtoRepr for proto::WitnessGenerator {
                 .map(|x| x.try_into())
                 .transpose()
                 .context("node_generation_timeout_in_secs")?,
+            recursion_tip_generation_timeout_in_secs: self
+                .recursion_tip_timeout_in_secs
+                .map(|x| x.try_into())
+                .transpose()
+                .context("recursion_tip_generation_timeout_in_secs")?,
             scheduler_generation_timeout_in_secs: self
                 .scheduler_generation_timeout_in_secs
                 .map(|x| x.try_into())
@@ -198,16 +200,16 @@ impl ProtoRepr for proto::WitnessGenerator {
         Self {
             generation_timeout_in_secs: Some(this.generation_timeout_in_secs.into()),
             max_attempts: Some(this.max_attempts),
-            blocks_proving_percentage: this.blocks_proving_percentage.map(|x| x.into()),
-            dump_arguments_for_blocks: this.dump_arguments_for_blocks.clone(),
             last_l1_batch_to_process: this.last_l1_batch_to_process,
-            force_process_block: this.force_process_block,
             shall_save_to_public_bucket: Some(this.shall_save_to_public_bucket),
             basic_generation_timeout_in_secs: this
                 .basic_generation_timeout_in_secs
                 .map(|x| x.into()),
             leaf_generation_timeout_in_secs: this.leaf_generation_timeout_in_secs.map(|x| x.into()),
             node_generation_timeout_in_secs: this.node_generation_timeout_in_secs.map(|x| x.into()),
+            recursion_tip_timeout_in_secs: this
+                .recursion_tip_generation_timeout_in_secs
+                .map(|x| x.into()),
             scheduler_generation_timeout_in_secs: this
                 .scheduler_generation_timeout_in_secs
                 .map(|x| x.into()),
@@ -287,7 +289,12 @@ impl proto::SetupLoadMode {
 impl ProtoRepr for proto::Prover {
     type Type = configs::FriProverConfig;
     fn read(&self) -> anyhow::Result<Self::Type> {
-        let object_store = if let Some(object_store) = &self.object_store {
+        let public_object_store = if let Some(object_store) = &self.public_object_store {
+            Some(object_store.read()?)
+        } else {
+            None
+        };
+        let prover_object_store = if let Some(object_store) = &self.prover_object_store {
             Some(object_store.read()?)
         } else {
             None
@@ -304,16 +311,6 @@ impl ProtoRepr for proto::Prover {
             generation_timeout_in_secs: required(&self.generation_timeout_in_secs)
                 .and_then(|x| Ok((*x).try_into()?))
                 .context("generation_timeout_in_secs")?,
-            base_layer_circuit_ids_to_be_verified: self
-                .base_layer_circuit_ids_to_be_verified
-                .iter()
-                .map(|a| *a as u8)
-                .collect(),
-            recursive_layer_circuit_ids_to_be_verified: self
-                .recursive_layer_circuit_ids_to_be_verified
-                .iter()
-                .map(|a| *a as u8)
-                .collect(),
             setup_load_mode: required(&self.setup_load_mode)
                 .and_then(|x| Ok(proto::SetupLoadMode::try_from(*x)?))
                 .context("setup_load_mode")?
@@ -321,11 +318,6 @@ impl ProtoRepr for proto::Prover {
             specialized_group_id: required(&self.specialized_group_id)
                 .and_then(|x| Ok((*x).try_into()?))
                 .context("specialized_group_id")?,
-            witness_vector_generator_thread_count: self
-                .witness_vector_generator_thread_count
-                .map(|x| x.try_into())
-                .transpose()
-                .context("witness_vector_generator_thread_count")?,
             queue_capacity: required(&self.queue_capacity)
                 .and_then(|x| Ok((*x).try_into()?))
                 .context("queue_capacity")?,
@@ -335,13 +327,11 @@ impl ProtoRepr for proto::Prover {
             zone_read_url: required(&self.zone_read_url)
                 .context("zone_read_url")?
                 .clone(),
-            availability_check_interval_in_secs: *required(
-                &self.availability_check_interval_in_secs,
-            )
-            .context("availability_check_interval_in_secs")?,
+            availability_check_interval_in_secs: self.availability_check_interval_in_secs,
             shall_save_to_public_bucket: *required(&self.shall_save_to_public_bucket)
                 .context("shall_save_to_public_bucket")?,
-            object_store,
+            public_object_store,
+            prover_object_store,
         })
     }
 
@@ -351,27 +341,15 @@ impl ProtoRepr for proto::Prover {
             prometheus_port: Some(this.prometheus_port.into()),
             max_attempts: Some(this.max_attempts),
             generation_timeout_in_secs: Some(this.generation_timeout_in_secs.into()),
-            base_layer_circuit_ids_to_be_verified: this
-                .base_layer_circuit_ids_to_be_verified
-                .iter()
-                .map(|a| *a as u32)
-                .collect(),
-            recursive_layer_circuit_ids_to_be_verified: this
-                .recursive_layer_circuit_ids_to_be_verified
-                .iter()
-                .map(|a| *a as u32)
-                .collect(),
             setup_load_mode: Some(proto::SetupLoadMode::new(&this.setup_load_mode).into()),
             specialized_group_id: Some(this.specialized_group_id.into()),
-            witness_vector_generator_thread_count: this
-                .witness_vector_generator_thread_count
-                .map(|x| x.try_into().unwrap()),
             queue_capacity: Some(this.queue_capacity.try_into().unwrap()),
             witness_vector_receiver_port: Some(this.witness_vector_receiver_port.into()),
             zone_read_url: Some(this.zone_read_url.clone()),
-            availability_check_interval_in_secs: Some(this.availability_check_interval_in_secs),
+            availability_check_interval_in_secs: this.availability_check_interval_in_secs,
             shall_save_to_public_bucket: Some(this.shall_save_to_public_bucket),
-            object_store: this.object_store.as_ref().map(ProtoRepr::build),
+            prover_object_store: this.prover_object_store.as_ref().map(ProtoRepr::build),
+            public_object_store: this.public_object_store.as_ref().map(ProtoRepr::build),
         }
     }
 }

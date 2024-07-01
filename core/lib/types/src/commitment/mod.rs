@@ -1,7 +1,7 @@
 //! Data structures that have more metadata than their primary versions declared in this crate.
 //! For example, L1 batch defined here has the `root_hash` field which is absent in `L1BatchHeader`.
 //!
-//! Existence of this module is caused by the execution model of zkSync: when executing transactions,
+//! Existence of this module is caused by the execution model of ZKsync: when executing transactions,
 //! we aim to avoid expensive operations like the state root hash recalculation. State root hash is not
 //! required for the rollup to execute L1 batches, it's needed for the proof generation and the Ethereum
 //! transactions, thus the calculations are done separately and asynchronously.
@@ -9,6 +9,7 @@
 use std::{collections::HashMap, convert::TryFrom};
 
 use serde::{Deserialize, Serialize};
+pub use zksync_basic_types::commitment::L1BatchCommitmentMode;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_mini_merkle_tree::MiniMerkleTree;
 use zksync_system_constants::{
@@ -24,7 +25,7 @@ use crate::{
         l2_to_l1_logs_tree_size, parse_system_logs_for_blob_hashes, L2ToL1Log, SystemL2ToL1Log,
         UserL2ToL1Log,
     },
-    web3::signing::keccak256,
+    web3::keccak256,
     writes::{
         compress_state_diffs, InitialStorageWrite, RepeatedStorageWrite, StateDiffRecord,
         PADDED_ENCODED_STORAGE_DIFF_LEN_BYTES,
@@ -76,7 +77,6 @@ pub fn serialize_commitments<I: SerializeCommitment>(values: &[I]) -> Vec<u8> {
 pub struct L1BatchMetadata {
     pub root_hash: H256,
     pub rollup_last_leaf_index: u64,
-    pub merkle_root_hash: H256,
     pub initial_writes_compressed: Option<Vec<u8>>,
     pub repeated_writes_compressed: Option<Vec<u8>>,
     pub commitment: H256,
@@ -260,7 +260,7 @@ impl SerializeCommitment for StateDiffRecord {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(test, derive(Serialize, Deserialize))]
-struct L1BatchAuxiliaryCommonOutput {
+pub struct L1BatchAuxiliaryCommonOutput {
     l2_l1_logs_merkle_root: H256,
     protocol_version: ProtocolVersionId,
 }
@@ -268,7 +268,7 @@ struct L1BatchAuxiliaryCommonOutput {
 /// Block Output produced by Virtual Machine
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(test, derive(Serialize, Deserialize))]
-enum L1BatchAuxiliaryOutput {
+pub enum L1BatchAuxiliaryOutput {
     PreBoojum {
         common: L1BatchAuxiliaryCommonOutput,
         l2_l1_logs_linear_hash: H256,
@@ -467,7 +467,7 @@ pub struct L1BatchMetaParameters {
     pub zkporter_is_available: bool,
     pub bootloader_code_hash: H256,
     pub default_aa_code_hash: H256,
-    pub protocol_version: ProtocolVersionId,
+    pub protocol_version: Option<ProtocolVersionId>,
 }
 
 impl L1BatchMetaParameters {
@@ -478,7 +478,10 @@ impl L1BatchMetaParameters {
         result.extend(self.bootloader_code_hash.as_bytes());
         result.extend(self.default_aa_code_hash.as_bytes());
 
-        if self.protocol_version.is_post_1_5_0() {
+        if self
+            .protocol_version
+            .map_or(false, |ver| ver.is_post_1_5_0())
+        {
             // EVM simulator hash for now is the same as the default AA hash.
             result.extend(self.default_aa_code_hash.as_bytes());
         }
@@ -529,8 +532,8 @@ impl L1BatchPassThroughData {
 #[derive(Debug, Clone)]
 pub struct L1BatchCommitment {
     pass_through_data: L1BatchPassThroughData,
-    auxiliary_output: L1BatchAuxiliaryOutput,
-    meta_parameters: L1BatchMetaParameters,
+    pub auxiliary_output: L1BatchAuxiliaryOutput,
+    pub meta_parameters: L1BatchMetaParameters,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -543,13 +546,12 @@ pub struct L1BatchCommitmentHash {
 }
 
 impl L1BatchCommitment {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(input: CommitmentInput) -> Self {
         let meta_parameters = L1BatchMetaParameters {
             zkporter_is_available: ZKPORTER_IS_AVAILABLE,
             bootloader_code_hash: input.common().bootloader_code_hash,
             default_aa_code_hash: input.common().default_aa_code_hash,
-            protocol_version: input.common().protocol_version,
+            protocol_version: Some(input.common().protocol_version),
         };
 
         Self {

@@ -1,15 +1,11 @@
 import chalk from 'chalk';
 import { Command } from 'commander';
-import * as utils from '../utils';
+import * as utils from 'utils';
 
 import * as integration from './integration';
 import * as db from '../database';
 
 export { integration };
-
-export async function l1Contracts() {
-    await utils.spawn('yarn l1-contracts test');
-}
 
 export async function prover() {
     process.chdir(process.env.ZKSYNC_HOME! + '/prover');
@@ -34,6 +30,10 @@ export async function rust(options: string[]) {
     console.log(`running unit tests with '${cmd}'`);
 
     await utils.spawn(cmd);
+}
+
+export async function l1Contracts() {
+    await utils.spawn('yarn l1-contracts test');
 }
 
 export const command = new Command('test').description('run test suites').addCommand(integration.command);

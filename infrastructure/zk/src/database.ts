@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import * as utils from './utils';
+import * as utils from 'utils';
 
 export async function reset(opts: DbOpts) {
     await utils.confirmAction();
@@ -8,7 +8,7 @@ export async function reset(opts: DbOpts) {
     await setup(opts);
 }
 
-enum DalPath {
+export enum DalPath {
     CoreDal = 'core/lib/dal',
     ProverDal = 'prover/prover_dal'
 }
@@ -130,7 +130,10 @@ export async function setupForDal(dalPath: DalPath, dbUrl: string) {
     }
     await utils.spawn(`cargo sqlx database create --database-url ${dbUrl}`);
     await utils.spawn(`cargo sqlx migrate run --database-url ${dbUrl}`);
-    if (dbUrl.startsWith(localDbUrl)) {
+    const isLocalSetup = process.env.ZKSYNC_LOCAL_SETUP;
+
+    if (dbUrl.startsWith(localDbUrl) && !isLocalSetup) {
+        // Dont't do this preparation for local (docker) setup - as it requires full cargo compilation.
         await utils.spawn(
             `cargo sqlx prepare --check --database-url ${dbUrl} -- --tests || cargo sqlx prepare --database-url ${dbUrl} -- --tests`
         );
@@ -197,7 +200,7 @@ command
     .action((opts: DbGenerateMigrationOpts) => {
         if ((!opts.prover && !opts.core) || (opts.prover && opts.core)) {
             throw new Error(
-                '[aborted] please specify a single database to generate migration for (i.e. to generate a migration for server `zk db new-migration --server name_of_migration`'
+                '[aborted] please specify a single database to generate migration for (i.e. to generate a migration for server `zk db new-migration --core name_of_migration`'
             );
         }
         if (opts.prover) {

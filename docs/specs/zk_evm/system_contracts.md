@@ -26,7 +26,7 @@ values are set on genesis explicitly. Notably, if in the future we want to upgra
 This contract is also responsible for ensuring validity and consistency of batches, L2 blocks and virtual blocks. The
 implementation itself is rather straightforward, but to better understand this contract, please take a look at the
 [page](https://github.com/code-423n4/2023-10-zksync/blob/main/docs/Smart%20contract%20Section/Batches%20&%20L2%20blocks%20on%20zkSync.md)
-about the block processing on zkSync.
+about the block processing on ZKsync.
 
 ## AccountCodeStorage
 
@@ -86,7 +86,7 @@ and returns `success=1`.
 
 ## SHA256 & Keccak256
 
-Note that, unlike Ethereum, keccak256 is a precompile (_not an opcode_) on zkSync.
+Note that, unlike Ethereum, keccak256 is a precompile (_not an opcode_) on ZKsync.
 
 These system contracts act as wrappers for their respective crypto precompile implementations. They are expected to be
 used frequently, especially keccak256, since Solidity computes storage slots for mapping and dynamic arrays with its
@@ -106,15 +106,16 @@ These precompiles simulate the behaviour of the EVM's EcAdd and EcMul precompile
 without circuit counterparts. You can read more about them
 [here](https://github.com/code-423n4/2023-10-zksync/blob/main/docs/Smart%20contract%20Section/Elliptic%20curve%20precompiles.md).
 
-## L2EthToken & MsgValueSimulator
+## L2BaseToken & MsgValueSimulator
 
 Unlike Ethereum, zkEVM does not have any notion of any special native token. That’s why we have to simulate operations
-with Ether via two contracts: `L2EthToken` & `MsgValueSimulator`.
+with Ether via two contracts: `L2BaseToken` & `MsgValueSimulator`.
 
-`L2EthToken` is a contract that holds the balances of ETH for the users. This contract does NOT provide ERC20 interface.
-The only method for transferring Ether is `transferFromTo`. It permits only some system contracts to transfer on behalf
-of users. This is needed to ensure that the interface is as close to Ethereum as possible, i.e. the only way to transfer
-ETH is by doing a call to a contract with some `msg.value`. This is what `MsgValueSimulator` system contract is for.
+`L2BaseToken` is a contract that holds the balances of ETH for the users. This contract does NOT provide ERC20
+interface. The only method for transferring Ether is `transferFromTo`. It permits only some system contracts to transfer
+on behalf of users. This is needed to ensure that the interface is as close to Ethereum as possible, i.e. the only way
+to transfer ETH is by doing a call to a contract with some `msg.value`. This is what `MsgValueSimulator` system contract
+is for.
 
 Whenever anyone wants to do a non-zero value call, they need to call `MsgValueSimulator` with:
 
@@ -127,7 +128,7 @@ More information on the extraAbiParams can be read
 
 ## KnownCodeStorage
 
-This contract is used to store whether a certain code hash is “known”, i.e. can be used to deploy contracts. On zkSync,
+This contract is used to store whether a certain code hash is “known”, i.e. can be used to deploy contracts. On ZKsync,
 the L2 stores the contract’s code _hashes_ and not the codes themselves. Therefore, it must be part of the protocol to
 ensure that no contract with unknown bytecode (i.e. hash with an unknown preimage) is ever deployed.
 
@@ -150,9 +151,9 @@ The KnownCodesStorage contract is also responsible for ensuring that all the “
 
 ## ContractDeployer & ImmutableSimulator
 
-`ContractDeployer` is a system contract responsible for deploying contracts on zkSync. It is better to understand how it
-works in the context of how the contract deployment works on zkSync. Unlike Ethereum, where `create`/`create2` are
-opcodes, on zkSync these are implemented by the compiler via calls to the ContractDeployer system contract.
+`ContractDeployer` is a system contract responsible for deploying contracts on ZKsync. It is better to understand how it
+works in the context of how the contract deployment works on ZKsync. Unlike Ethereum, where `create`/`create2` are
+opcodes, on ZKsync these are implemented by the compiler via calls to the ContractDeployer system contract.
 
 For additional security, we also distinguish the deployment of normal contracts and accounts. That’s why the main
 methods that will be used by the user are `create`, `create2`, `createAccount`, `create2Account`, which simulate the
@@ -167,7 +168,7 @@ the L2 contract). Generally, rollups solve this issue in two ways:
 - XOR/ADD some kind of constant to addresses during L1→L2 communication. That’s how rollups closer to full
   EVM-equivalence solve it, since it allows them to maintain the same derivation rules on L1 at the expense of contract
   accounts on L1 having to redeploy on L2.
-- Have different derivation rules from Ethereum. That is the path that zkSync has chosen, mainly because since we have
+- Have different derivation rules from Ethereum. That is the path that ZKsync has chosen, mainly because since we have
   different bytecode than on EVM, CREATE2 address derivation would be different in practice anyway.
 
 You can see the rules for our address derivation in `getNewAddressCreate2`/ `getNewAddressCreate` methods in the
@@ -178,7 +179,7 @@ way to support EVM bytecodes in the future.
 
 ### **Deployment nonce**
 
-On Ethereum, the same nonce is used for CREATE for accounts and EOA wallets. On zkSync this is not the case, we use a
+On Ethereum, the same nonce is used for CREATE for accounts and EOA wallets. On ZKsync this is not the case, we use a
 separate nonce called “deploymentNonce” to track the nonces for accounts. This was done mostly for consistency with
 custom accounts and for having multicalls feature in the future.
 
@@ -196,13 +197,13 @@ custom accounts and for having multicalls feature in the future.
 - Calls `ImmutableSimulator` to set the immutables that are to be used for the deployed contract.
 
 Note how it is different from the EVM approach: on EVM when the contract is deployed, it executes the initCode and
-returns the deployedCode. On zkSync, contracts only have the deployed code and can set immutables as storage variables
+returns the deployedCode. On ZKsync, contracts only have the deployed code and can set immutables as storage variables
 returned by the constructor.
 
 ### **Constructor**
 
 On Ethereum, the constructor is only part of the initCode that gets executed during the deployment of the contract and
-returns the deployment code of the contract. On zkSync, there is no separation between deployed code and constructor
+returns the deployment code of the contract. On ZKsync, there is no separation between deployed code and constructor
 code. The constructor is always a part of the deployment code of the contract. In order to protect it from being called,
 the compiler-generated contracts invoke constructor only if the `isConstructor` flag provided (it is only available for
 the system contracts). You can read more about flags
@@ -227,7 +228,7 @@ part of the compiler specification. This contract treats it simply as mapping fr
 address.
 
 Whenever a contract needs to access a value of some immutable, they call the
-`ImmutableSimulator.getImmutable(getCodeAddress(), index)`. Note that on zkSync it is possible to get the current
+`ImmutableSimulator.getImmutable(getCodeAddress(), index)`. Note that on ZKsync it is possible to get the current
 execution address you can read more about `getCodeAddress()`
 [here](https://github.com/matter-labs/zksync-era/blob/main/docs/guides/advanced/0_alternative_vm_intro.md#zkevm-specific-opcodes).
 
@@ -247,7 +248,7 @@ are not in kernel space and have no contract deployed on them. This address:
 
 ## L1Messenger
 
-A contract used for sending arbitrary length L2→L1 messages from zkSync to L1. While zkSync natively supports a rather
+A contract used for sending arbitrary length L2→L1 messages from ZKsync to L1. While ZKsync natively supports a rather
 limited number of L1→L2 logs, which can transfer only roughly 64 bytes of data a time, we allowed sending
 nearly-arbitrary length L2→L1 messages with the following trick:
 

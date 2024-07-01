@@ -6,27 +6,20 @@ use std::{
 
 use anyhow::Context as _;
 use async_trait::async_trait;
-use prover_dal::{ConnectionPool, Prover, ProverDal};
 use tokio::{task::JoinHandle, time::sleep};
 use zksync_config::configs::FriWitnessVectorGeneratorConfig;
 use zksync_object_store::ObjectStore;
+use zksync_prover_dal::{ConnectionPool, Prover, ProverDal};
 use zksync_prover_fri_types::{
-    circuit_definitions::{
-        boojum::{
-            config::{CSConfig, ProvingCSConfig},
-            dag::StCircuitResolver,
-            field::goldilocks::GoldilocksField,
-        },
-        circuit_definitions::eip4844::synthesis,
-    },
-    CircuitWrapper, ProverJob, WitnessVectorArtifacts,
+    circuit_definitions::boojum::field::goldilocks::GoldilocksField, CircuitWrapper, ProverJob,
+    WitnessVectorArtifacts,
 };
 use zksync_prover_fri_utils::{
     fetch_next_circuit, get_numeric_circuit_id, socket_utils::send_assembly,
 };
 use zksync_queued_job_processor::JobProcessor;
 use zksync_types::{
-    basic_fri_types::CircuitIdRoundTuple, protocol_version::L1VerifierConfig,
+    basic_fri_types::CircuitIdRoundTuple, protocol_version::ProtocolSemanticVersion,
     prover_dal::GpuProverInstanceStatus,
 };
 use zksync_vk_setup_data_server_fri::keystore::Keystore;
@@ -34,32 +27,32 @@ use zksync_vk_setup_data_server_fri::keystore::Keystore;
 use crate::metrics::METRICS;
 
 pub struct WitnessVectorGenerator {
-    blob_store: Arc<dyn ObjectStore>,
+    object_store: Arc<dyn ObjectStore>,
     pool: ConnectionPool<Prover>,
     circuit_ids_for_round_to_be_proven: Vec<CircuitIdRoundTuple>,
     zone: String,
     config: FriWitnessVectorGeneratorConfig,
-    vk_commitments: L1VerifierConfig,
+    protocol_version: ProtocolSemanticVersion,
     max_attempts: u32,
 }
 
 impl WitnessVectorGenerator {
     pub fn new(
-        blob_store: Arc<dyn ObjectStore>,
+        object_store: Arc<dyn ObjectStore>,
         prover_connection_pool: ConnectionPool<Prover>,
         circuit_ids_for_round_to_be_proven: Vec<CircuitIdRoundTuple>,
         zone: String,
         config: FriWitnessVectorGeneratorConfig,
-        vk_commitments: L1VerifierConfig,
+        protocol_version: ProtocolSemanticVersion,
         max_attempts: u32,
     ) -> Self {
         Self {
-            blob_store,
+            object_store,
             pool: prover_connection_pool,
             circuit_ids_for_round_to_be_proven,
             zone,
             config,
-            vk_commitments,
+            protocol_version,
             max_attempts,
         }
     }
@@ -78,10 +71,6 @@ impl WitnessVectorGenerator {
             CircuitWrapper::Recursive(recursive_circuit) => {
                 recursive_circuit.synthesis::<GoldilocksField>(&finalization_hints)
             }
-            CircuitWrapper::Eip4844(circuit) => synthesis::<
-                _,
-                StCircuitResolver<GoldilocksField, <ProvingCSConfig as CSConfig>::ResolverConfig>,
-            >(circuit, &finalization_hints),
         };
         Ok(WitnessVectorArtifacts::new(cs.witness.unwrap(), job))
     }
@@ -100,9 +89,9 @@ impl JobProcessor for WitnessVectorGenerator {
         let mut storage = self.pool.connection().await.unwrap();
         let Some(job) = fetch_next_circuit(
             &mut storage,
-            &*self.blob_store,
+            &*self.object_store,
             &self.circuit_ids_for_round_to_be_proven,
-            &self.vk_commitments,
+            &self.protocol_version,
         )
         .await
         else {
@@ -168,6 +157,7 @@ impl JobProcessor for WitnessVectorGenerator {
                     self.config.max_prover_reservation_duration(),
                     self.config.specialized_group_id,
                     self.zone.clone(),
+                    self.protocol_version,
                 )
                 .await;
 

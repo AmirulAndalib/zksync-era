@@ -1,33 +1,42 @@
 // Public re-exports
 pub use self::{
     api::ApiConfig,
+    commitment_generator::CommitmentGeneratorConfig,
     contract_verifier::ContractVerifierConfig,
-    contracts::ContractsConfig,
+    contracts::{ContractsConfig, EcosystemContracts},
     database::{DBConfig, PostgresConfig},
-    eth_sender::{ETHConfig, GasAdjusterConfig},
-    eth_watch::ETHWatchConfig,
+    eth_sender::{EthConfig, GasAdjusterConfig},
+    eth_watch::EthWatchConfig,
+    experimental::ExperimentalDBConfig,
     fri_proof_compressor::FriProofCompressorConfig,
     fri_prover::FriProverConfig,
     fri_prover_gateway::FriProverGatewayConfig,
     fri_witness_generator::FriWitnessGeneratorConfig,
     fri_witness_vector_generator::FriWitnessVectorGeneratorConfig,
     general::GeneralConfig,
-    genesis::{GenesisConfig, SharedBridge},
+    genesis::GenesisConfig,
     object_store::ObjectStoreConfig,
     observability::{ObservabilityConfig, OpentelemetryConfig},
     proof_data_handler::ProofDataHandlerConfig,
+    pruning::PruningConfig,
+    secrets::{DatabaseSecrets, L1Secrets, Secrets},
+    snapshot_recovery::SnapshotRecoveryConfig,
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
-    witness_generator::WitnessGeneratorConfig,
+    vm_runner::ProtectiveReadsWriterConfig,
 };
 
 pub mod api;
 pub mod chain;
+mod commitment_generator;
+pub mod consensus;
 pub mod contract_verifier;
 pub mod contracts;
 pub mod database;
+pub mod en_config;
 pub mod eth_sender;
 pub mod eth_watch;
+mod experimental;
 pub mod fri_proof_compressor;
 pub mod fri_prover;
 pub mod fri_prover_gateway;
@@ -40,9 +49,12 @@ pub mod house_keeper;
 pub mod object_store;
 pub mod observability;
 pub mod proof_data_handler;
+pub mod pruning;
+pub mod secrets;
+pub mod snapshot_recovery;
 pub mod snapshots_creator;
 pub mod utils;
+pub mod vm_runner;
 pub mod wallets;
-pub mod witness_generator;
 
 const BYTES_IN_MEGABYTE: usize = 1_024 * 1_024;

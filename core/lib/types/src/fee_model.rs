@@ -9,7 +9,7 @@ use crate::ProtocolVersionId;
 /// versions of Era prior to 1.4.1 integration.
 /// - `PubdataIndependent`: L1 gas price and pubdata price are not necessarily dependent on one another. This options is more suitable for the
 /// versions of Era after the 1.4.1 integration. It is expected that if a VM supports `PubdataIndependent` version, then it should also support `L1Pegged` version, but converting it into `PubdataIndependentBatchFeeModelInput` in-place.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BatchFeeInput {
     L1Pegged(L1PeggedBatchFeeModelInput),
     PubdataIndependent(PubdataIndependentBatchFeeModelInput),
@@ -137,7 +137,7 @@ impl BatchFeeInput {
 }
 
 /// Pubdata is only published via calldata and so its price is pegged to the L1 gas price.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1PeggedBatchFeeModelInput {
     /// Fair L2 gas price to provide
     pub fair_l2_gas_price: u64,
@@ -146,7 +146,7 @@ pub struct L1PeggedBatchFeeModelInput {
 }
 
 /// Pubdata price may be independent from L1 gas price.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PubdataIndependentBatchFeeModelInput {
     /// Fair L2 gas price to provide
     pub fair_l2_gas_price: u64,
@@ -157,10 +157,10 @@ pub struct PubdataIndependentBatchFeeModelInput {
 }
 
 /// The enum which represents the version of the fee model. It is used to determine which fee model should be used for the batch.
-/// - `V1`, the first model that was used in zkSync Era. In this fee model, the pubdata price must be pegged to the L1 gas price.
+/// - `V1`, the first model that was used in ZKsync Era. In this fee model, the pubdata price must be pegged to the L1 gas price.
 /// Also, the fair L2 gas price is expected to only include the proving/computation price for the operator and not the costs that come from
 /// processing the batch on L1.
-/// - `V2`, the second model that was used in zkSync Era. There the pubdata price might be independent from the L1 gas price. Also,
+/// - `V2`, the second model that was used in ZKsync Era. There the pubdata price might be independent from the L1 gas price. Also,
 /// The fair L2 gas price is expected to both the proving/computation price for the operator and the costs that come from
 /// processing the batch on L1.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

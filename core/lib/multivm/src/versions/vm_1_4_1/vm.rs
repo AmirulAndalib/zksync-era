@@ -112,11 +112,7 @@ impl<S: WriteStorage, H: HistoryMode> VmInterface<S, H> for Vm<S, H> {
 
         CurrentExecutionState {
             events,
-            storage_log_queries: storage_log_queries
-                .into_iter()
-                .map(GlueInto::glue_into)
-                .collect(),
-            deduplicated_storage_log_queries: deduped_storage_log_queries
+            deduplicated_storage_logs: deduped_storage_log_queries
                 .into_iter()
                 .map(GlueInto::glue_into)
                 .collect(),
@@ -183,6 +179,7 @@ impl<S: WriteStorage, H: HistoryMode> VmInterface<S, H> for Vm<S, H> {
                     .clone()
                     .build_pubdata(false),
             ),
+            state_diffs: None,
         }
     }
 }

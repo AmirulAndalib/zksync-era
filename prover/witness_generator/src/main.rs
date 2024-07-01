@@ -3,26 +3,24 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context as _};
-use futures::{channel::mpsc, executor::block_on, SinkExt};
-use prometheus_exporter::PrometheusExporterConfig;
-use prover_dal::{ConnectionPool, Prover, ProverDal};
+use futures::{channel::mpsc, executor::block_on, SinkExt, StreamExt};
 use structopt::StructOpt;
 use tokio::sync::watch;
-use zksync_config::{
-    configs::{FriWitnessGeneratorConfig, ObservabilityConfig, PostgresConfig, PrometheusConfig},
-    ObjectStoreConfig,
-};
+use zksync_config::ObjectStoreConfig;
 use zksync_env_config::{object_store::ProverObjectStoreConfig, FromEnv};
 use zksync_object_store::ObjectStoreFactory;
+use zksync_prover_config::{load_database_secrets, load_general_config};
+use zksync_prover_dal::{ConnectionPool, Prover, ProverDal};
 use zksync_queued_job_processor::JobProcessor;
-use zksync_types::{basic_fri_types::AggregationRound, web3::futures::StreamExt};
+use zksync_types::basic_fri_types::AggregationRound;
 use zksync_utils::wait_for_tasks::ManagedTasks;
 use zksync_vk_setup_data_server_fri::commitment_utils::get_cached_commitments;
+use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 use crate::{
     basic_circuits::BasicWitnessGenerator, leaf_aggregation::LeafAggregationWitnessGenerator,
     metrics::SERVER_METRICS, node_aggregation::NodeAggregationWitnessGenerator,
-    scheduler::SchedulerWitnessGenerator,
+    recursion_tip::RecursionTipWitnessGenerator, scheduler::SchedulerWitnessGenerator,
 };
 
 mod basic_circuits;
@@ -30,6 +28,7 @@ mod leaf_aggregation;
 mod metrics;
 mod node_aggregation;
 mod precalculated_merkle_paths_provider;
+mod recursion_tip;
 mod scheduler;
 mod storage_oracle;
 mod utils;
@@ -37,6 +36,7 @@ mod utils;
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
 use zksync_dal::Core;
+use zksync_prover_fri_types::PROVER_PROTOCOL_SEMANTIC_VERSION;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -59,18 +59,31 @@ struct Opt {
     /// Start all aggregation rounds for the witness generator.
     #[structopt(short = "a", long = "all_rounds")]
     all_rounds: bool,
+    /// Path to the configuration file.
+    #[structopt(long)]
+    config_path: Option<std::path::PathBuf>,
+    /// Path to the secrets file.
+    #[structopt(long)]
+    secrets_path: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let observability_config =
-        ObservabilityConfig::from_env().context("ObservabilityConfig::from_env()")?;
-    let log_format: vlog::LogFormat = observability_config
+    let opt = Opt::from_args();
+
+    let general_config = load_general_config(opt.config_path).context("general config")?;
+
+    let database_secrets = load_database_secrets(opt.secrets_path).context("database secrets")?;
+
+    let observability_config = general_config
+        .observability
+        .context("observability config")?;
+    let log_format: zksync_vlog::LogFormat = observability_config
         .log_format
         .parse()
         .context("Invalid log format")?;
 
-    let mut builder = vlog::ObservabilityBuilder::new().with_log_format(log_format);
+    let mut builder = zksync_vlog::ObservabilityBuilder::new().with_log_format(log_format);
     if let Some(sentry_url) = &observability_config.sentry_url {
         builder = builder
             .with_sentry_url(sentry_url)
@@ -95,48 +108,55 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("No sentry URL was provided");
     }
 
-    let opt = Opt::from_args();
     let started_at = Instant::now();
     let use_push_gateway = opt.batch_size.is_some();
 
-    let object_store_config =
-        ProverObjectStoreConfig::from_env().context("ProverObjectStoreConfig::from_env()")?;
+    let object_store_config = ProverObjectStoreConfig(
+        general_config
+            .prover_config
+            .context("prover config")?
+            .prover_object_store
+            .context("object store")?,
+    );
     let store_factory = ObjectStoreFactory::new(object_store_config.0);
-    let config =
-        FriWitnessGeneratorConfig::from_env().context("FriWitnessGeneratorConfig::from_env()")?;
-    let prometheus_config = PrometheusConfig::from_env().context("PrometheusConfig::from_env()")?;
-    let postgres_config = PostgresConfig::from_env().context("PostgresConfig::from_env()")?;
+    let config = general_config
+        .witness_generator
+        .context("witness generator config")?;
+    let prometheus_config = general_config
+        .prometheus_config
+        .context("prometheus config")?;
+    let postgres_config = general_config.postgres_config.context("postgres config")?;
     let connection_pool = ConnectionPool::<Core>::builder(
-        postgres_config.master_url()?,
+        database_secrets.master_url()?,
         postgres_config.max_connections()?,
     )
     .build()
     .await
     .context("failed to build a connection_pool")?;
-    let prover_connection_pool = ConnectionPool::<Prover>::singleton(postgres_config.prover_url()?)
-        .build()
-        .await
-        .context("failed to build a prover_connection_pool")?;
+    let prover_connection_pool =
+        ConnectionPool::<Prover>::singleton(database_secrets.prover_url()?)
+            .build()
+            .await
+            .context("failed to build a prover_connection_pool")?;
     let (stop_sender, stop_receiver) = watch::channel(false);
-    let vk_commitments = get_cached_commitments();
-    let protocol_versions = prover_connection_pool
+
+    let protocol_version = PROVER_PROTOCOL_SEMANTIC_VERSION;
+    let vk_commitments_in_db = match prover_connection_pool
         .connection()
         .await
         .unwrap()
         .fri_protocol_versions_dal()
-        .protocol_version_for(&vk_commitments)
-        .await;
-
-    // If `batch_size` is none, it means that the job is 'looping forever' (this is the usual setup in local network).
-    // At the same time, we're reading the `protocol_version` only once at startup - so if there is no protocol version
-    // read (this is often due to the fact, that the gateway was started too late, and it didn't put the updated protocol
-    // versions into the database) - then the job will simply 'hang forever' and not pick any tasks.
-    if opt.batch_size.is_none() && protocol_versions.is_empty() {
-        panic!(
-            "Could not find a protocol version for my commitments. Is gateway running?  Maybe you started this job before gateway updated the database? Commitments: {:?}",
-            vk_commitments
-        );
-    }
+        .vk_commitments_for(protocol_version)
+        .await
+    {
+        Some(commitments) => commitments,
+        None => {
+            panic!(
+                "No vk commitments available in database for a protocol version {:?}.",
+                protocol_version
+            );
+        }
+    };
 
     let rounds = match (opt.round, opt.all_rounds) {
         (Some(round), false) => vec![round],
@@ -144,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
             AggregationRound::BasicCircuits,
             AggregationRound::LeafAggregation,
             AggregationRound::NodeAggregation,
+            AggregationRound::RecursionTip,
             AggregationRound::Scheduler,
         ],
         (Some(_), true) => {
@@ -162,10 +183,10 @@ async fn main() -> anyhow::Result<()> {
 
     for (i, round) in rounds.iter().enumerate() {
         tracing::info!(
-            "initializing the {:?} witness generator, batch size: {:?} with protocol_versions: {:?}",
+            "initializing the {:?} witness generator, batch size: {:?} with protocol_version: {:?}",
             round,
             opt.batch_size,
-            &protocol_versions
+            &protocol_version
         );
 
         let prometheus_config = if use_push_gateway {
@@ -181,6 +202,13 @@ async fn main() -> anyhow::Result<()> {
 
         let witness_generator_task = match round {
             AggregationRound::BasicCircuits => {
+                let vk_commitments = get_cached_commitments();
+                assert_eq!(
+                    vk_commitments,
+                    vk_commitments_in_db,
+                    "VK commitments didn't match commitments from DB for protocol version {protocol_version:?}. Cached commitments: {vk_commitments:?}, commitments in database: {vk_commitments_in_db:?}"
+                );
+
                 let public_blob_store = match config.shall_save_to_public_bucket {
                     false => None,
                     true => Some(
@@ -189,48 +217,53 @@ async fn main() -> anyhow::Result<()> {
                                 .context("ObjectStoreConfig::from_env()")?,
                         )
                         .create_store()
-                        .await,
+                        .await?,
                     ),
                 };
                 let generator = BasicWitnessGenerator::new(
                     config.clone(),
-                    &store_factory,
+                    store_factory.create_store().await?,
                     public_blob_store,
                     connection_pool.clone(),
                     prover_connection_pool.clone(),
-                    protocol_versions.clone(),
-                )
-                .await;
+                    protocol_version,
+                );
                 generator.run(stop_receiver.clone(), opt.batch_size)
             }
             AggregationRound::LeafAggregation => {
                 let generator = LeafAggregationWitnessGenerator::new(
                     config.clone(),
-                    &store_factory,
+                    store_factory.create_store().await?,
                     prover_connection_pool.clone(),
-                    protocol_versions.clone(),
-                )
-                .await;
+                    protocol_version,
+                );
                 generator.run(stop_receiver.clone(), opt.batch_size)
             }
             AggregationRound::NodeAggregation => {
                 let generator = NodeAggregationWitnessGenerator::new(
                     config.clone(),
-                    &store_factory,
+                    store_factory.create_store().await?,
                     prover_connection_pool.clone(),
-                    protocol_versions.clone(),
-                )
-                .await;
+                    protocol_version,
+                );
+                generator.run(stop_receiver.clone(), opt.batch_size)
+            }
+            AggregationRound::RecursionTip => {
+                let generator = RecursionTipWitnessGenerator::new(
+                    config.clone(),
+                    store_factory.create_store().await?,
+                    prover_connection_pool.clone(),
+                    protocol_version,
+                );
                 generator.run(stop_receiver.clone(), opt.batch_size)
             }
             AggregationRound::Scheduler => {
                 let generator = SchedulerWitnessGenerator::new(
                     config.clone(),
-                    &store_factory,
+                    store_factory.create_store().await?,
                     prover_connection_pool.clone(),
-                    protocol_versions.clone(),
-                )
-                .await;
+                    protocol_version,
+                );
                 generator.run(stop_receiver.clone(), opt.batch_size)
             }
         };

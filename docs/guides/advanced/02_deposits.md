@@ -33,7 +33,7 @@ Now, let's see how many tokens we have:
 // This checks the tokens on 'L1' (reth)
 ./web3 --rpc-url http://localhost:8545 balance  0x618263CE921F7dd5F4f40C29f6c524Aaf97b9bbd
 
-// This checks the tokens on 'L2' (zkSync)
+// This checks the tokens on 'L2' (ZKsync)
 ./web3 --rpc-url http://localhost:3050 balance  0x618263CE921F7dd5F4f40C29f6c524Aaf97b9bbd
 ```
 
@@ -55,7 +55,7 @@ and now let's bridge it over to L2.
 
 ## Bridging over to L2
 
-For an easy way to bridge we'll use [zkSync CLI](https://github.com/matter-labs/zksync-cli)
+For an easy way to bridge we'll use [ZKsync CLI](https://github.com/matter-labs/zksync-cli)
 
 ```shell
 npx zksync-cli bridge deposit --chain=dockerized-node --amount 3 --pk=0x5090c024edb3bdf4ce2ebc2da96bedee925d9d77d729687e5e2d56382cf0a5a6 --to=0x618263CE921F7dd5F4f40C29f6c524Aaf97b9bbd
@@ -144,9 +144,8 @@ gas limit (641k) and set the gas per pubdata byte limit to 800. (TODO: explain w
 The call to requestL2Transaction, is adding the transaction to the priorityQueue and then emits the NewPriorityRequest.
 
 The zk server (that you started with `zk server` command) is listening on events that are emitted from this contract
-(via eth_watcher module -
-[`loop_iteration` function](https://github.com/matter-labs/zksync-era/blob/main/core/node/eth_watch/src/lib.rs#L165))
-and adds them to the postgres database (into `transactions` table).
+(via the [`eth_watcher` component](https://github.com/matter-labs/zksync-era/blob/main/core/node/eth_watch/)) and adds
+them to the postgres database (into `transactions` table).
 
 You can actually check it - by running the psql and looking at the contents of the table - then you'll notice that
 transaction was successfully inserted, and it was also marked as 'priority' (as it came from L1) - as regular

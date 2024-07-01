@@ -26,7 +26,7 @@ Here's a simplified table of the transaction types:
 | 0x0     | 'Legacy'                                                   | Only includes `gas price`                                                                          | These are traditional Ethereum transactions.                                          | 60% / 82%                           |
 | 0x1     | EIP-2930                                                   | Contains a list of storage keys/addresses the transaction will access                              | At present, this type of transaction is not enabled.                                  |
 | 0x2     | EIP-1559                                                   | Includes `max_priority_fee_per_gas`, `max_gas_price`                                               | These are Ethereum transactions that provide more control over the gas fee.           | 35% / 12%                           |
-| 0x71    | EIP-712 (specific to zkSync)                               | Similar to EIP-1559, but also adds `max_gas_per_pubdata`, custom signatures, and Paymaster support | This is used by those who are using zkSync specific Software Development Kits (SDKs). | 1% / 2%                             |
+| 0x71    | EIP-712 (specific to ZKsync)                               | Similar to EIP-1559, but also adds `max_gas_per_pubdata`, custom signatures, and Paymaster support | This is used by those who are using ZKsync specific Software Development Kits (SDKs). | 1% / 2%                             |
 | 0xFF    | L1 transactions also known as priority transactions `L1Tx` | Originating from L1, these have more custom fields like 'refund' addresses etc                     | Mainly used to transfer funds/data between L1 & L2 layer.                             | 4% / 3%                             |
 
 Here's the code that does the parsing: [TransactionRequest::from_bytes][transaction_request_from_bytes]
@@ -36,8 +36,8 @@ Here's the code that does the parsing: [TransactionRequest::from_bytes][transact
 ### Priority queue (L1 Tx only)
 
 L1 transactions are first 'packaged' and then sent to our Ethereum contract. After this, the L1 contract records this
-transaction in L1 logs. Our 'eth_watcher' constantly monitors these logs through the
-[`get_priority_op_events`][get_priority_op_events] method and then adds them to the database (mempool).
+transaction in L1 logs. [The `eth_watcher` component][eth_watcher] constantly monitors these logs and then adds them to
+the database (mempool).
 
 ### RPC & validation (L2 Tx only)
 
@@ -79,9 +79,7 @@ The transaction can have three different results in state keeper:
 [transaction_request_from_bytes]:
   https://github.com/matter-labs/zksync-era/blob/main/core/lib/types/src/transaction_request.rs#L196
   'transaction request from bytes'
-[get_priority_op_events]:
-  https://github.com/matter-labs/zksync-era/blob/main/core/node/eth_watch/src/client.rs
-  'get priority op events'
+[eth_watcher]: https://github.com/matter-labs/zksync-era/blob/main/core/node/eth_watch 'Ethereum watcher component'
 [l1_tx]: https://github.com/matter-labs/zksync-era/blob/main/core/lib/types/src/l1/mod.rs#L183 'l1 tx'
 [l2_tx]: https://github.com/matter-labs/zksync-era/blob/main/core/lib/types/src/l2/mod.rs#L140 'l2 tx'
 [submit_tx]:

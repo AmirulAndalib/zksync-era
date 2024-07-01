@@ -1,9 +1,12 @@
-import * as utils from 'zk/build/utils';
+import * as utils from 'utils';
+import { loadConfig, shouldLoadConfigFromFile, getAllConfigsPath } from 'utils/build/file-configs';
+import { runServerInBackground } from 'utils/build/server';
 import { Tester } from './tester';
-import * as zkweb3 from 'zksync-web3';
+import * as zksync from 'zksync-ethers';
 import { BigNumber, Contract, ethers } from 'ethers';
 import { expect } from 'chai';
 import fs from 'fs';
+import path from 'path';
 
 // Parses output of "print-suggested-values" command of the revert block tool.
 function parseSuggestedValues(suggestedValuesString: string) {
@@ -29,7 +32,7 @@ function parseSuggestedValues(suggestedValuesString: string) {
 }
 
 async function killServerAndWaitForShutdown(tester: Tester) {
-    await utils.exec('pkill -9 zksync_server');
+    await utils.exec('killall -9 zksync_server');
     // Wait until it's really stopped.
     let iter = 0;
     while (iter < 30) {
@@ -55,10 +58,17 @@ const depositAmount = ethers.utils.parseEther('0.001');
 
 describe('Block reverting test', function () {
     let tester: Tester;
-    let alice: zkweb3.Wallet;
+    let alice: zksync.Wallet;
     let mainContract: Contract;
     let blocksCommittedBeforeRevert: number;
     let logs: fs.WriteStream;
+    let operatorAddress: string;
+    let ethClientWeb3Url: string;
+    let apiWeb3JsonRpcHttpUrl: string;
+
+    const fileConfig = shouldLoadConfigFromFile();
+
+    const pathToHome = path.join(__dirname, '../../../..');
 
     let enable_consensus = process.env.ENABLE_CONSENSUS == 'true';
     let components = 'api,tree,eth,state_keeper,commitment_generator';
@@ -66,11 +76,45 @@ describe('Block reverting test', function () {
         components += ',consensus';
     }
 
-    before('create test wallet', async () => {
-        tester = await Tester.init(
-            process.env.ETH_CLIENT_WEB3_URL as string,
-            process.env.API_WEB3_JSON_RPC_HTTP_URL as string
-        );
+    before('initialize test', async () => {
+        // Clone file configs if necessary
+        let baseTokenAddress: string;
+
+        if (!fileConfig.loadFromFile) {
+            operatorAddress = process.env.ETH_SENDER_SENDER_OPERATOR_COMMIT_ETH_ADDR!;
+            ethClientWeb3Url = process.env.ETH_CLIENT_WEB3_URL!;
+            apiWeb3JsonRpcHttpUrl = process.env.API_WEB3_JSON_RPC_HTTP_URL!;
+            baseTokenAddress = process.env.CONTRACTS_BASE_TOKEN_ADDR!;
+        } else {
+            const generalConfig = loadConfig({
+                pathToHome,
+                chain: fileConfig.chain,
+                config: 'general.yaml'
+            });
+            const secretsConfig = loadConfig({
+                pathToHome,
+                chain: fileConfig.chain,
+                config: 'secrets.yaml'
+            });
+            const walletsConfig = loadConfig({
+                pathToHome,
+                chain: fileConfig.chain,
+                config: 'wallets.yaml'
+            });
+            const contractsConfig = loadConfig({
+                pathToHome,
+                chain: fileConfig.chain,
+                config: 'contracts.yaml'
+            });
+
+            operatorAddress = walletsConfig.operator.address;
+            ethClientWeb3Url = secretsConfig.l1.l1_rpc_url;
+            apiWeb3JsonRpcHttpUrl = generalConfig.api.web3_json_rpc.http_url;
+            baseTokenAddress = contractsConfig.l1.base_token_addr;
+        }
+
+        // Create test wallets
+        tester = await Tester.init(ethClientWeb3Url, apiWeb3JsonRpcHttpUrl, baseTokenAddress);
         alice = tester.emptyWallet();
         logs = fs.createWriteStream('revert.log', { flags: 'a' });
     });
@@ -79,14 +123,14 @@ describe('Block reverting test', function () {
         // Make sure server isn't running.
         await killServerAndWaitForShutdown(tester).catch(ignoreError);
 
-        // Set 1000 seconds deadline for `ExecuteBlocks` operation.
-        process.env.ETH_SENDER_SENDER_AGGREGATED_BLOCK_EXECUTE_DEADLINE = '1000';
-        // Set full mode for the Merkle tree as it is required to get blocks committed.
-        process.env.DATABASE_MERKLE_TREE_MODE = 'full';
-
         // Run server in background.
+        runServerInBackground({
+            components: [components],
+            stdio: [null, logs, logs],
+            cwd: pathToHome,
+            useZkInception: fileConfig.loadFromFile
+        });
 
-        utils.background(`zk server --components ${components}`, [null, logs, logs]);
         // Server may need some time to recompile if it's a cold run, so wait for it.
         let iter = 0;
         while (iter < 30 && !mainContract) {
@@ -102,25 +146,29 @@ describe('Block reverting test', function () {
             throw new Error('Server did not start');
         }
 
+        await tester.fundSyncWallet();
+
         // Seal 2 L1 batches.
         // One is not enough to test the reversion of sk cache because
         // it gets updated with some batch logs only at the start of the next batch.
         const initialL1BatchNumber = await tester.web3Provider.getL1BatchNumber();
-
         const firstDepositHandle = await tester.syncWallet.deposit({
-            token: zkweb3.utils.ETH_ADDRESS,
+            token: tester.isETHBasedChain ? zksync.utils.LEGACY_ETH_ADDRESS : tester.baseTokenAddress,
             amount: depositAmount,
-            to: alice.address
+            to: alice.address,
+            approveBaseERC20: true,
+            approveERC20: true
         });
         await firstDepositHandle.wait();
         while ((await tester.web3Provider.getL1BatchNumber()) <= initialL1BatchNumber) {
             await utils.sleep(1);
         }
-
         const secondDepositHandle = await tester.syncWallet.deposit({
-            token: zkweb3.utils.ETH_ADDRESS,
+            token: tester.isETHBasedChain ? zksync.utils.LEGACY_ETH_ADDRESS : tester.baseTokenAddress,
             amount: depositAmount,
-            to: alice.address
+            to: alice.address,
+            approveBaseERC20: true,
+            approveERC20: true
         });
         await secondDepositHandle.wait();
         while ((await tester.web3Provider.getL1BatchNumber()) <= initialL1BatchNumber + 1) {
@@ -131,12 +179,12 @@ describe('Block reverting test', function () {
         expect(balance.eq(depositAmount.mul(2)), 'Incorrect balance after deposits').to.be.true;
 
         // Check L1 committed and executed blocks.
-        let blocksCommitted = await mainContract.getTotalBlocksCommitted();
-        let blocksExecuted = await mainContract.getTotalBlocksExecuted();
+        let blocksCommitted = await mainContract.getTotalBatchesCommitted();
+        let blocksExecuted = await mainContract.getTotalBatchesExecuted();
         let tryCount = 0;
         while (blocksCommitted.eq(blocksExecuted) && tryCount < 100) {
-            blocksCommitted = await mainContract.getTotalBlocksCommitted();
-            blocksExecuted = await mainContract.getTotalBlocksExecuted();
+            blocksCommitted = await mainContract.getTotalBatchesCommitted();
+            blocksExecuted = await mainContract.getTotalBatchesExecuted();
             tryCount += 1;
             await utils.sleep(1);
         }
@@ -148,9 +196,20 @@ describe('Block reverting test', function () {
     });
 
     step('revert blocks', async () => {
+        let fileConfigFlags = '';
+        if (fileConfig.loadFromFile) {
+            const configPaths = getAllConfigsPath({ pathToHome, chain: fileConfig.chain });
+            fileConfigFlags = `
+                --config-path=${configPaths['general.yaml']}
+                --contracts-config-path=${configPaths['contracts.yaml']}
+                --secrets-path=${configPaths['secrets.yaml']}
+                --wallets-path=${configPaths['wallets.yaml']}
+                --genesis-path=${configPaths['genesis.yaml']}
+            `;
+        }
+
         const executedProcess = await utils.exec(
-            'cd $ZKSYNC_HOME && ' +
-                'RUST_LOG=off cargo run --bin block_reverter --release -- print-suggested-values --json'
+            `cd ${pathToHome} && RUST_LOG=off cargo run --bin block_reverter --release -- print-suggested-values --json --operator-address ${operatorAddress} ${fileConfigFlags}`
             // ^ Switch off logs to not pollute the output JSON
         );
         const suggestedValuesOutput = executedProcess.stdout;
@@ -164,36 +223,47 @@ describe('Block reverting test', function () {
 
         console.log('Sending ETH transaction..');
         await utils.spawn(
-            `cd $ZKSYNC_HOME && cargo run --bin block_reverter --release -- send-eth-transaction --l1-batch-number ${lastL1BatchNumber} --nonce ${nonce} --priority-fee-per-gas ${priorityFee}`
+            `cd ${pathToHome} && cargo run --bin block_reverter --release -- send-eth-transaction --l1-batch-number ${lastL1BatchNumber} --nonce ${nonce} --priority-fee-per-gas ${priorityFee} ${fileConfigFlags}`
         );
 
         console.log('Rolling back DB..');
         await utils.spawn(
-            `cd $ZKSYNC_HOME && cargo run --bin block_reverter --release -- rollback-db --l1-batch-number ${lastL1BatchNumber} --rollback-postgres --rollback-tree --rollback-sk-cache`
+            `cd ${pathToHome} && cargo run --bin block_reverter --release -- rollback-db --l1-batch-number ${lastL1BatchNumber} --rollback-postgres --rollback-tree --rollback-sk-cache ${fileConfigFlags}`
         );
 
-        let blocksCommitted = await mainContract.getTotalBlocksCommitted();
+        let blocksCommitted = await mainContract.getTotalBatchesCommitted();
         expect(blocksCommitted.eq(lastL1BatchNumber), 'Revert on contract was unsuccessful').to.be.true;
     });
 
     step('execute transaction after revert', async () => {
-        // Set 1 second deadline for `ExecuteBlocks` operation.
-        process.env.ETH_SENDER_SENDER_AGGREGATED_BLOCK_EXECUTE_DEADLINE = '1';
-
         // Run server.
-        utils.background(`zk server --components ${components}`, [null, logs, logs]);
-        await utils.sleep(10);
+        runServerInBackground({
+            components: [components],
+            stdio: [null, logs, logs],
+            cwd: pathToHome,
+            useZkInception: fileConfig.loadFromFile
+        });
+        await utils.sleep(30);
 
         const balanceBefore = await alice.getBalance();
         expect(balanceBefore.eq(depositAmount.mul(2)), 'Incorrect balance after revert').to.be.true;
 
         // Execute a transaction
         const depositHandle = await tester.syncWallet.deposit({
-            token: zkweb3.utils.ETH_ADDRESS,
+            token: tester.isETHBasedChain ? zksync.utils.LEGACY_ETH_ADDRESS : tester.baseTokenAddress,
             amount: depositAmount,
-            to: alice.address
+            to: alice.address,
+            approveBaseERC20: true,
+            approveERC20: true
         });
-        const l1TxResponse = await alice._providerL1().getTransaction(depositHandle.hash);
+
+        let l1TxResponse = await alice._providerL1().getTransaction(depositHandle.hash);
+        while (!l1TxResponse) {
+            console.log(`Deposit ${depositHandle.hash} is not visible to the L1 network; sleeping`);
+            await utils.sleep(1);
+            l1TxResponse = await alice._providerL1().getTransaction(depositHandle.hash);
+        }
+
         // ethers doesn't work well with block reversions, so wait for the receipt before calling `.waitFinalize()`.
         const l2Tx = await alice._providerL2().getL2TransactionFromPriorityOp(l1TxResponse);
         let receipt = null;
@@ -218,24 +288,30 @@ describe('Block reverting test', function () {
         await killServerAndWaitForShutdown(tester);
 
         // Run again.
-        utils.background(`zk server --components=${components}`, [null, logs, logs]);
-        await utils.sleep(10);
+        runServerInBackground({
+            components: [components],
+            stdio: [null, logs, logs],
+            cwd: pathToHome,
+            useZkInception: fileConfig.loadFromFile
+        });
+        await utils.sleep(30);
 
         // Trying to send a transaction from the same address again
         await checkedRandomTransfer(alice, BigNumber.from(1));
     });
 
     after('Try killing server', async () => {
-        await utils.exec('pkill zksync_server').catch(ignoreError);
+        await utils.exec('killall zksync_server').catch(ignoreError);
     });
 });
 
-async function checkedRandomTransfer(sender: zkweb3.Wallet, amount: BigNumber) {
+async function checkedRandomTransfer(sender: zksync.Wallet, amount: BigNumber) {
     const senderBalanceBefore = await sender.getBalance();
-    const receiver = zkweb3.Wallet.createRandom().connect(sender.provider);
+    const receiver = zksync.Wallet.createRandom().connect(sender.provider);
     const transferHandle = await sender.sendTransaction({
         to: receiver.address,
-        value: amount
+        value: amount,
+        type: 0
     });
 
     // ethers doesn't work well with block reversions, so we poll for the receipt manually.

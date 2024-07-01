@@ -167,7 +167,7 @@ fn execute_test(test_data: L1MessengerTestData) -> TestStatistics {
                 contract_address: CONTRACT_FORCE_DEPLOYER_ADDRESS,
                 calldata: data,
                 value: U256::zero(),
-                factory_deps: None,
+                factory_deps: vec![],
             },
             None,
         );
@@ -192,6 +192,7 @@ fn execute_test(test_data: L1MessengerTestData) -> TestStatistics {
         vm.vm.batch_env.clone(),
         VmExecutionMode::Batch,
         test_data.state_diffs.clone(),
+        crate::vm_latest::MultiVMSubversion::latest(),
     );
 
     let result = vm.vm.inspect_inner(

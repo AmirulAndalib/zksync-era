@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
-use zksync_eth_signer::{error::SignerError, EthereumSigner};
+use zksync_eth_signer::{EthereumSigner, SignerError};
 use zksync_types::{
     fee::Fee, l2::L2Tx, transaction_request::PaymasterParams, Address, Eip712Domain, L2ChainId,
-    Nonce, PackedEthSignature, L2_ETH_TOKEN_ADDRESS, U256,
+    Nonce, PackedEthSignature, L2_BASE_TOKEN_ADDRESS, U256,
 };
 
 use crate::sdk::{operations::create_transfer_calldata, types::TransactionRequest};
@@ -49,7 +49,7 @@ impl<S: EthereumSigner> Signer<S> {
         paymaster_params: PaymasterParams,
     ) -> Result<L2Tx, SignerError> {
         // Sign Ether transfer
-        if token.is_zero() || token == L2_ETH_TOKEN_ADDRESS {
+        if token.is_zero() || token == L2_BASE_TOKEN_ADDRESS {
             let mut transfer = L2Tx::new(
                 to,
                 Default::default(),
@@ -57,7 +57,7 @@ impl<S: EthereumSigner> Signer<S> {
                 fee,
                 self.eth_signer.get_address().await?,
                 amount,
-                None,
+                vec![],
                 Default::default(),
             );
 
@@ -79,7 +79,7 @@ impl<S: EthereumSigner> Signer<S> {
             fee,
             self.eth_signer.get_address().await?,
             U256::zero(),
-            None,
+            vec![],
             paymaster_params,
         );
 
@@ -98,7 +98,7 @@ impl<S: EthereumSigner> Signer<S> {
         calldata: Vec<u8>,
         fee: Fee,
         nonce: Nonce,
-        factory_deps: Option<Vec<Vec<u8>>>,
+        factory_deps: Vec<Vec<u8>>,
         paymaster_params: PaymasterParams,
     ) -> Result<L2Tx, SignerError> {
         self.sign_execute_contract_for_deploy(
@@ -118,7 +118,7 @@ impl<S: EthereumSigner> Signer<S> {
         calldata: Vec<u8>,
         fee: Fee,
         nonce: Nonce,
-        factory_deps: Option<Vec<Vec<u8>>>,
+        factory_deps: Vec<Vec<u8>>,
         paymaster_params: PaymasterParams,
     ) -> Result<L2Tx, SignerError> {
         let mut execute_contract = L2Tx::new(

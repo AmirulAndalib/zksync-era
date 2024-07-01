@@ -7,7 +7,7 @@ use serde::{
 };
 
 pub use crate::Execute as ExecuteData;
-use crate::{Address, Bytes};
+use crate::{web3::Bytes, Address};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "codeFormat", content = "sourceCode")]
@@ -140,7 +140,7 @@ pub struct VerificationIncomingRequest {
     pub optimizer_mode: Option<String>,
     #[serde(default)]
     pub constructor_arguments: Bytes,
-    #[serde(default)]
+    #[serde(default, alias = "enableEraVMExtensions")]
     pub is_system: bool,
     #[serde(default)]
     pub force_evmla: bool,

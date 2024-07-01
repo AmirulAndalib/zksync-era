@@ -1,6 +1,6 @@
 use ethabi::Token;
 use zksync_contracts::{load_contract, read_bytecode};
-use zksync_system_constants::L2_ETH_TOKEN_ADDRESS;
+use zksync_system_constants::L2_BASE_TOKEN_ADDRESS;
 use zksync_types::{utils::storage_key_for_eth_balance, AccountTreeId, Address, Execute, U256};
 use zksync_utils::u256_to_h256;
 
@@ -76,7 +76,7 @@ fn test_send_or_transfer(test_option: TestOptions) {
             contract_address: test_contract_address,
             calldata,
             value: U256::zero(),
-            factory_deps: None,
+            factory_deps: vec![],
         },
         None,
     );
@@ -92,7 +92,7 @@ fn test_send_or_transfer(test_option: TestOptions) {
     assert!(!batch_result.result.is_failed(), "Batch wasn't successful");
 
     let new_recipient_balance = get_balance(
-        AccountTreeId::new(L2_ETH_TOKEN_ADDRESS),
+        AccountTreeId::new(L2_BASE_TOKEN_ADDRESS),
         &recipient_address,
         vm.vm.state.storage.storage.get_ptr(),
     );
@@ -176,7 +176,7 @@ fn test_reentrancy_protection_send_or_transfer(test_option: TestOptions) {
                 .encode_input(&[])
                 .unwrap(),
             value: U256::from(1),
-            factory_deps: None,
+            factory_deps: vec![],
         },
         None,
     );
@@ -193,7 +193,7 @@ fn test_reentrancy_protection_send_or_transfer(test_option: TestOptions) {
             contract_address: test_contract_address,
             calldata,
             value,
-            factory_deps: None,
+            factory_deps: vec![],
         },
         None,
     );

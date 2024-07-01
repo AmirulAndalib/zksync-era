@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
-use zksync_core::sync_layer::MainNodeClient;
+use zksync_web3_decl::client::{DynClient, L2};
 
 use crate::resource::Resource;
 
+/// A resource that provides L2 interface object to the service.
 #[derive(Debug, Clone)]
-pub struct MainNodeClientResource(pub Arc<dyn MainNodeClient>);
+pub struct MainNodeClientResource(pub Box<DynClient<L2>>);
 
 impl Resource for MainNodeClientResource {
     fn name() -> String {

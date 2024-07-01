@@ -1,6 +1,7 @@
 use std::{convert::TryInto, str::FromStr};
 
 use bigdecimal::Zero;
+use serde_json::Value;
 use sqlx::types::chrono::{DateTime, NaiveDateTime, Utc};
 use zksync_types::{
     api::{self, TransactionDetails, TransactionReceipt, TransactionStatus},
@@ -9,12 +10,12 @@ use zksync_types::{
     l2::TransactionType,
     protocol_upgrade::ProtocolUpgradeTxCommonData,
     transaction_request::PaymasterParams,
-    vm_trace::{Call, LegacyCall},
-    web3::types::U64,
-    Address, Bytes, Execute, ExecuteTransactionCommon, L1TxCommonData, L2ChainId, L2TxCommonData,
-    Nonce, PackedEthSignature, PriorityOpId, ProtocolVersionId, Transaction, EIP_1559_TX_TYPE,
+    vm_trace::{Call, LegacyCall, LegacyMixedCall},
+    web3::Bytes,
+    Address, Execute, ExecuteTransactionCommon, L1TxCommonData, L2ChainId, L2TxCommonData, Nonce,
+    PackedEthSignature, PriorityOpId, ProtocolVersionId, Transaction, EIP_1559_TX_TYPE,
     EIP_2930_TX_TYPE, EIP_712_TX_TYPE, H160, H256, PRIORITY_OPERATION_L2_TX_TYPE,
-    PROTOCOL_UPGRADE_TX_TYPE, U256,
+    PROTOCOL_UPGRADE_TX_TYPE, U256, U64,
 };
 use zksync_utils::{bigdecimal_to_u256, h256_to_account_address};
 
@@ -42,7 +43,6 @@ pub struct StorageTransaction {
     pub received_at: NaiveDateTime,
     pub in_mempool: bool,
 
-    pub l1_block_number: Option<i32>,
     pub l1_batch_number: Option<i64>,
     pub l1_batch_tx_index: Option<i32>,
     pub miniblock_number: Option<i64>,
@@ -66,6 +66,9 @@ pub struct StorageTransaction {
 
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+
+    // DEPRECATED.
+    pub l1_block_number: Option<i32>,
 }
 
 impl From<StorageTransaction> for L1TxCommonData {
@@ -137,10 +140,9 @@ impl From<StorageTransaction> for L1TxCommonData {
                 .gas_per_pubdata_limit
                 .map(bigdecimal_to_u256)
                 .unwrap_or_else(|| U256::from(1u32)),
-            deadline_block: 0,
-            eth_hash: Default::default(),
-            eth_block: tx.l1_block_number.unwrap_or_default() as u64,
             canonical_tx_hash,
+            // DEPRECATED.
+            eth_block: tx.l1_block_number.unwrap_or_default() as u64,
         }
     }
 }
@@ -282,7 +284,7 @@ impl From<StorageTransaction> for ProtocolUpgradeTxCommonData {
                 .gas_per_pubdata_limit
                 .map(bigdecimal_to_u256)
                 .expect("gas_per_pubdata_limit field is missing for protocol upgrade tx"),
-            eth_hash: Default::default(),
+            // DEPRECATED.
             eth_block: tx.l1_block_number.unwrap_or_default() as u64,
             canonical_tx_hash,
         }
@@ -395,8 +397,15 @@ impl From<StorageTransactionReceipt> for TransactionReceipt {
     }
 }
 
+/// Details of the transaction execution.
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub struct StorageTransactionDetails {
+pub struct StorageTransactionExecutionInfo {
+    /// This is an opaque JSON field, with VM version specific contents.
+    pub execution_info: Value,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct StorageTransactionDetails {
     pub is_priority: bool,
     pub initiator_address: Vec<u8>,
     pub gas_limit: Option<BigDecimal>,
@@ -546,9 +555,14 @@ pub(crate) struct CallTrace {
 impl CallTrace {
     pub(crate) fn into_call(self, protocol_version: ProtocolVersionId) -> Call {
         if protocol_version.is_pre_1_5_0() {
-            let legacy_call_trace: LegacyCall = bincode::deserialize(&self.call_trace).unwrap();
-
-            legacy_call_trace.into()
+            if let Ok(legacy_call_trace) = bincode::deserialize::<LegacyCall>(&self.call_trace) {
+                legacy_call_trace.into()
+            } else {
+                let legacy_mixed_call_trace =
+                    bincode::deserialize::<LegacyMixedCall>(&self.call_trace)
+                        .expect("Failed to deserialize call trace");
+                legacy_mixed_call_trace.into()
+            }
         } else {
             bincode::deserialize(&self.call_trace).unwrap()
         }

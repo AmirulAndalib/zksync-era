@@ -19,19 +19,18 @@ use crate::{
 impl GlueFrom<crate::vm_m5::vm_instance::VmBlockResult> for crate::interface::FinishedL1Batch {
     fn glue_from(value: crate::vm_m5::vm_instance::VmBlockResult) -> Self {
         let storage_log_queries = value.full_result.storage_log_queries.clone();
-        let deduplicated_storage_log_queries: Vec<LogQuery_1_3_1> =
-            sort_storage_access_queries_1_3_3(
-                &storage_log_queries
-                    .iter()
-                    .map(|log| {
-                        GlueInto::<zk_evm_1_3_3::aux_structures::LogQuery>::glue_into(log.log_query)
-                    })
-                    .collect_vec(),
-            )
-            .1
-            .into_iter()
-            .map(GlueInto::<LogQuery_1_3_1>::glue_into)
-            .collect();
+        let deduplicated_storage_logs: Vec<LogQuery_1_3_1> = sort_storage_access_queries_1_3_3(
+            &storage_log_queries
+                .iter()
+                .map(|log| {
+                    GlueInto::<zk_evm_1_3_3::aux_structures::LogQuery>::glue_into(log.log_query)
+                })
+                .collect_vec(),
+        )
+        .1
+        .into_iter()
+        .map(GlueInto::<LogQuery_1_3_1>::glue_into)
+        .collect();
 
         crate::interface::FinishedL1Batch {
             block_tip_execution_result: VmExecutionResultAndLogs {
@@ -51,11 +50,7 @@ impl GlueFrom<crate::vm_m5::vm_instance::VmBlockResult> for crate::interface::Fi
             },
             final_execution_state: CurrentExecutionState {
                 events: value.full_result.events,
-                storage_log_queries: storage_log_queries
-                    .into_iter()
-                    .map(GlueInto::glue_into)
-                    .collect(),
-                deduplicated_storage_log_queries: deduplicated_storage_log_queries
+                deduplicated_storage_logs: deduplicated_storage_logs
                     .into_iter()
                     .map(GlueInto::glue_into)
                     .collect(),
@@ -75,6 +70,7 @@ impl GlueFrom<crate::vm_m5::vm_instance::VmBlockResult> for crate::interface::Fi
             },
             final_bootloader_memory: None,
             pubdata_input: None,
+            state_diffs: None,
         }
     }
 }
@@ -82,19 +78,18 @@ impl GlueFrom<crate::vm_m5::vm_instance::VmBlockResult> for crate::interface::Fi
 impl GlueFrom<crate::vm_m6::vm_instance::VmBlockResult> for crate::interface::FinishedL1Batch {
     fn glue_from(value: crate::vm_m6::vm_instance::VmBlockResult) -> Self {
         let storage_log_queries = value.full_result.storage_log_queries.clone();
-        let deduplicated_storage_log_queries: Vec<LogQuery_1_3_1> =
-            sort_storage_access_queries_1_3_3(
-                &storage_log_queries
-                    .iter()
-                    .map(|log| {
-                        GlueInto::<zk_evm_1_3_3::aux_structures::LogQuery>::glue_into(log.log_query)
-                    })
-                    .collect_vec(),
-            )
-            .1
-            .into_iter()
-            .map(GlueInto::<LogQuery_1_3_1>::glue_into)
-            .collect();
+        let deduplicated_storage_logs: Vec<LogQuery_1_3_1> = sort_storage_access_queries_1_3_3(
+            &storage_log_queries
+                .iter()
+                .map(|log| {
+                    GlueInto::<zk_evm_1_3_3::aux_structures::LogQuery>::glue_into(log.log_query)
+                })
+                .collect_vec(),
+        )
+        .1
+        .into_iter()
+        .map(GlueInto::<LogQuery_1_3_1>::glue_into)
+        .collect();
 
         crate::interface::FinishedL1Batch {
             block_tip_execution_result: VmExecutionResultAndLogs {
@@ -114,11 +109,7 @@ impl GlueFrom<crate::vm_m6::vm_instance::VmBlockResult> for crate::interface::Fi
             },
             final_execution_state: CurrentExecutionState {
                 events: value.full_result.events,
-                storage_log_queries: storage_log_queries
-                    .into_iter()
-                    .map(GlueInto::glue_into)
-                    .collect(),
-                deduplicated_storage_log_queries: deduplicated_storage_log_queries
+                deduplicated_storage_logs: deduplicated_storage_logs
                     .into_iter()
                     .map(GlueInto::glue_into)
                     .collect(),
@@ -138,6 +129,7 @@ impl GlueFrom<crate::vm_m6::vm_instance::VmBlockResult> for crate::interface::Fi
             },
             final_bootloader_memory: None,
             pubdata_input: None,
+            state_diffs: None,
         }
     }
 }
@@ -145,7 +137,7 @@ impl GlueFrom<crate::vm_m6::vm_instance::VmBlockResult> for crate::interface::Fi
 impl GlueFrom<crate::vm_1_3_2::vm_instance::VmBlockResult> for crate::interface::FinishedL1Batch {
     fn glue_from(value: crate::vm_1_3_2::vm_instance::VmBlockResult) -> Self {
         let storage_log_queries = value.full_result.storage_log_queries.clone();
-        let deduplicated_storage_log_queries =
+        let deduplicated_storage_logs =
             circuit_sequencer_api_1_3_3::sort_storage_access::sort_storage_access_queries(
                 storage_log_queries.iter().map(|log| &log.log_query),
             )
@@ -175,11 +167,7 @@ impl GlueFrom<crate::vm_1_3_2::vm_instance::VmBlockResult> for crate::interface:
             },
             final_execution_state: CurrentExecutionState {
                 events: value.full_result.events,
-                storage_log_queries: storage_log_queries
-                    .into_iter()
-                    .map(GlueInto::glue_into)
-                    .collect(),
-                deduplicated_storage_log_queries: deduplicated_storage_log_queries
+                deduplicated_storage_logs: deduplicated_storage_logs
                     .into_iter()
                     .map(GlueInto::glue_into)
                     .collect(),
@@ -199,6 +187,7 @@ impl GlueFrom<crate::vm_1_3_2::vm_instance::VmBlockResult> for crate::interface:
             },
             final_bootloader_memory: None,
             pubdata_input: None,
+            state_diffs: None,
         }
     }
 }

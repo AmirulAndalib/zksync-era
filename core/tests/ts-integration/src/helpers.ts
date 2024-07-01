@@ -1,8 +1,10 @@
 import * as fs from 'fs';
-import * as zksync from 'zksync-web3';
+import * as zksync from 'zksync-ethers';
 import * as ethers from 'ethers';
 import * as hre from 'hardhat';
 import { ZkSyncArtifact } from '@matterlabs/hardhat-zksync-solc/dist/src/types';
+
+export const SYSTEM_CONTEXT_ADDRESS = '0x000000000000000000000000000000000000800b';
 
 /**
  * Loads the test contract
@@ -22,7 +24,7 @@ export function getTestContract(name: string): ZkSyncArtifact {
  * @returns Conta
  */
 export function getContractSource(relativePath: string): string {
-    const contractPath = `${process.env.ZKSYNC_HOME}/core/tests/ts-integration/contracts/${relativePath}`;
+    const contractPath = `${__dirname}/../contracts/${relativePath}`;
     const source = fs.readFileSync(contractPath, 'utf8');
     return source;
 }
@@ -62,7 +64,7 @@ export async function anyTransaction(wallet: zksync.Wallet): Promise<ethers.prov
 }
 
 /**
- * Waits until a new L1 batch is created on zkSync node.
+ * Waits until a new L1 batch is created on ZKsync node.
  * This function attempts to trigger this action by sending an additional transaction,
  * however it may not be enough in some env (e.g. if some testnet is configured to utilize the block capacity).
  *
@@ -77,6 +79,7 @@ export async function waitForNewL1Batch(wallet: zksync.Wallet): Promise<zksync.t
     }
     return await wallet.provider.getTransactionReceipt(oldReceipt.transactionHash);
 }
+
 /**
  * Waits until the requested block is finalized.
  *
@@ -102,6 +105,6 @@ export async function waitUntilBlockFinalized(wallet: zksync.Wallet, blockNumber
  */
 export async function scaledGasPrice(wallet: ethers.Wallet | zksync.Wallet): Promise<ethers.BigNumber> {
     const gasPrice = await wallet.getGasPrice();
-    // Increase by 40%.
-    return gasPrice.mul(170).div(100);
+    // Increase by 40%
+    return gasPrice.mul(140).div(100);
 }

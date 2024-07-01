@@ -1,6 +1,6 @@
 use zk_evm_1_5_0::zkevm_opcode_defs::p256;
 use zksync_system_constants::P256VERIFY_PRECOMPILE_ADDRESS;
-use zksync_types::{web3::signing::keccak256, Execute, H256, U256};
+use zksync_types::{web3::keccak256, Execute, H256, U256};
 use zksync_utils::h256_to_u256;
 
 use crate::{
@@ -51,7 +51,7 @@ fn test_sekp256r1() {
             contract_address: P256VERIFY_PRECOMPILE_ADDRESS,
             calldata: [digest, encoded_r, encoded_s, x, y].concat(),
             value: U256::zero(),
-            factory_deps: None,
+            factory_deps: vec![],
         },
         None,
     );

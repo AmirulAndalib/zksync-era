@@ -4,23 +4,40 @@
 
 Install `docker compose` and `Docker`
 
-## Running ZkSync external node locally
+## Running ZKsync node locally
 
 To start a mainnet instance, run:
 
 ```sh
 cd docker-compose-examples
-docker compose --file mainnet-docker-external-node-compose.yml up
+docker compose --file mainnet-external-node-docker-compose.yml up
 ```
 
-To start testnet instance, run:
+To reset its state, run:
+
+```sh
+cd docker-compose-examples
+docker compose --file mainnet-external-node-docker-compose.yml down --volumes
+```
+
+To start a testnet instance, run:
 
 ```sh
 cd docker-compose-examples
 docker compose --file testnet-external-node-docker-compose.yml up
 ```
 
-Those commands start external node locally inside docker.
+To reset its state, run:
+
+```sh
+cd docker-compose-examples
+docker compose --file testnet-external-node-docker-compose.yml down --volumes
+```
+
+You can see the status of the node (after recovery) in
+[local grafana dashboard](http://localhost:3000/d/0/external-node).
+
+Those commands start ZKsync node locally inside docker.
 
 The HTTP JSON-RPC API can be accessed on port `3060` and WebSocket API can be accessed on port `3061`.
 
@@ -35,11 +52,29 @@ The HTTP JSON-RPC API can be accessed on port `3060` and WebSocket API can be ac
 
 ### System Requirements
 
+> [!NOTE]
+>
+> This configuration is only for nodes that use snapshots recovery (the default for docker-compose setup), for
+> requirements for nodes running from DB dump see
+> [03_running.md](https://github.com/matter-labs/zksync-era/blob/main/docs/guides/external-node/03_running.md). DB dumps
+> are a way to start ZKsync node with full historical transactions history
+
+> [!NOTE]
+>
+> Those are requirements for a freshly started node and the the state grows about 1TB per month for mainnet
+
+> [!NOTE]
+>
+> To stop state growth, you can enable state pruning by uncommenting `EN_PRUNING_ENABLED: true` in docker compose file,
+> you can read more about pruning in
+> [08_pruning.md](https://github.com/matter-labs/zksync-era/blob/main/docs/guides/external-node/08_pruning.md)
+
 - 32 GB of RAM and a relatively modern CPU
-- 50GB of storage for testnet instance
-- 700GB of storage for mainnet instance
+- 30 GB of storage for testnet nodes
+- 300 GB of storage for mainnet nodes
+- 100 Mbps connection (1 Gbps+ recommended)
 
 ## Advanced setup
 
-If you need monitoring, backups, to recover from DB dump or a more customized postgres settings, etc, please see:
+If you need monitoring, backups, to recover from DB dump or a more customized PostgreSQL settings, etc, please see:
 [ansible-en-role repo](https://github.com/matter-labs/ansible-en-role)

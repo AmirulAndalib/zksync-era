@@ -1,6 +1,6 @@
 # How L2 to L1 messaging works
 
-In this article, we will explore the workings of Layer 2 (L2) to Layer 1 (L1) messaging in zkSync Era.
+In this article, we will explore the workings of Layer 2 (L2) to Layer 1 (L1) messaging in ZKsync Era.
 
 If you're uncertain about why messaging is necessary in the first place, please refer to our [user
 documentation][user_docs].
@@ -183,7 +183,7 @@ explored how it's ultimately included in the execution results (as part of Query
 transmitted to L1 for final verification.
 
 [overview_image]: https://user-images.githubusercontent.com/128217157/257739371-f971c10b-87c7-4ee9-bd0e-731670c616ac.png
-[user_docs]: https://era.zksync.io/docs/dev/how-to/send-message-l2-l1.html
+[user_docs]: https://code.zksync.io/tutorials/how-to-send-l2-l1-message
 [l1_messenger]:
   https://github.com/matter-labs/era-system-contracts/blob/f01df555c03860b6093dd669d119eed4d9f8ec99/contracts/L1Messenger.sol#L22
 [list_of_opcodes]:
@@ -203,8 +203,8 @@ transmitted to L1 for final verification.
 [zkevm_assembly_parse]:
   https://github.com/matter-labs/era-zkEVM-assembly/blob/v1.3.2/src/assembly/instruction/log.rs#L32
 [executor_sol]:
-  https://github.com/matter-labs/era-contracts/blob/3a4506522aaef81485d8abb96f5a6394bd2ba69e/ethereum/contracts/zksync/facets/Executor.sol#L26
+  https://github.com/matter-labs/era-contracts/blob/b04dcaf2256a9b2626eeaefbf1b281f0119d30ab/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L21
 [mainet_executor]: https://etherscan.io/address/0x389a081BCf20e5803288183b929F08458F1d863D
 [sepolia_tx]: https://sepolia.etherscan.io/tx/0x18c2a113d18c53237a4056403047ff9fafbf772cb83ccd44bb5b607f8108a64c
 [mailbox_log_inclusion]:
-  https://github.com/matter-labs/era-contracts/blob/3a4506522aaef81485d8abb96f5a6394bd2ba69e/ethereum/contracts/zksync/facets/Mailbox.sol#L54
+  https://github.com/matter-labs/era-contracts/blob/b04dcaf2256a9b2626eeaefbf1b281f0119d30ab/l1-contracts/contracts/state-transition/chain-deps/facets/Mailbox.sol#L70

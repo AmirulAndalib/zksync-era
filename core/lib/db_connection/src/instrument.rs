@@ -15,7 +15,7 @@ use std::{fmt, future::Future, panic::Location};
 
 use sqlx::{
     postgres::{PgCopyIn, PgQueryResult, PgRow},
-    query::{Map, Query, QueryAs},
+    query::{Map, Query, QueryAs, QueryScalar},
     FromRow, IntoArguments, PgConnection, Postgres,
 };
 use tokio::time::Instant;
@@ -31,7 +31,7 @@ use crate::{
 type ThreadSafeDebug<'a> = dyn fmt::Debug + Send + Sync + 'a;
 
 /// Logged arguments for an SQL query.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct QueryArgs<'a> {
     inner: Vec<(&'static str, &'a ThreadSafeDebug<'a>)>,
 }
@@ -82,6 +82,19 @@ where
 }
 
 impl<'q, O, A> InstrumentExt for QueryAs<'q, Postgres, O, A>
+where
+    A: 'q + IntoArguments<'q, Postgres>,
+{
+    #[track_caller]
+    fn instrument(self, name: &'static str) -> Instrumented<'static, Self> {
+        Instrumented {
+            query: self,
+            data: InstrumentedData::new(name, Location::caller()),
+        }
+    }
+}
+
+impl<'q, O, A> InstrumentExt for QueryScalar<'q, Postgres, O, A>
 where
     A: 'q + IntoArguments<'q, Postgres>,
 {
@@ -167,7 +180,7 @@ impl ActiveCopy<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InstrumentedData<'a> {
     name: &'static str,
     location: &'static Location<'static>,
@@ -185,6 +198,21 @@ impl<'a> InstrumentedData<'a> {
             report_latency: false,
             slow_query_reporting_enabled: true,
         }
+    }
+
+    fn observe_error(&self, err: &dyn fmt::Display) {
+        let InstrumentedData {
+            name,
+            location,
+            args,
+            ..
+        } = self;
+        tracing::warn!(
+            "Query {name}{args} called at {file}:{line} has resulted in error: {err}",
+            file = location.file(),
+            line = location.line()
+        );
+        REQUEST_METRICS.request_error[name].inc();
     }
 
     async fn fetch<R>(
@@ -265,7 +293,7 @@ impl<'a> InstrumentedData<'a> {
 ///   included in the case of a slow query, plus the error info.
 /// - Slow and erroneous queries are also reported using metrics (`dal.request.slow` and `dal.request.error`,
 ///   respectively). The query name is included as a metric label; args are not included for obvious reasons.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instrumented<'a, Q> {
     query: Q,
     data: InstrumentedData<'a>,
@@ -282,20 +310,40 @@ impl<'a> Instrumented<'a, ()> {
         }
     }
 
-    /// Wraps a provided argument validation error.
+    /// Wraps a provided argument validation error. It is assumed that the returned error
+    /// will be returned as an error cause (e.g., it is logged as an error and observed using metrics).
+    #[must_use]
     pub fn arg_error<E>(&self, arg_name: &str, err: E) -> DalError
     where
         E: Into<anyhow::Error>,
     {
         let err: anyhow::Error = err.into();
         let err = err.context(format!("failed validating query argument `{arg_name}`"));
-        DalRequestError::new(
+        let err = DalRequestError::new(
             sqlx::Error::Decode(err.into()),
             self.data.name,
             self.data.location,
         )
-        .with_args(self.data.args.to_owned())
-        .into()
+        .with_args(self.data.args.to_owned());
+
+        self.data.observe_error(&err);
+        err.into()
+    }
+
+    /// Wraps a provided application-level data constraint error. It is assumed that the returned error
+    /// will be returned as an error cause (e.g., it is logged as an error and observed using metrics).
+    #[must_use]
+    pub fn constraint_error(&self, err: anyhow::Error) -> DalError {
+        let err = err.context("application-level data constraint violation");
+        let err = DalRequestError::new(
+            sqlx::Error::Decode(err.into()),
+            self.data.name,
+            self.data.location,
+        )
+        .with_args(self.data.args.to_owned());
+
+        self.data.observe_error(&err);
+        err.into()
     }
 
     pub fn with<Q>(self, query: Q) -> Instrumented<'a, Q> {
@@ -364,6 +412,28 @@ where
     }
 }
 
+impl<'q, O, A> Instrumented<'_, QueryScalar<'q, Postgres, O, A>>
+where
+    A: 'q + IntoArguments<'q, Postgres>,
+    O: Send + Unpin,
+    (O,): for<'r> FromRow<'r, PgRow>,
+{
+    /// Fetches an optional row using this query.
+    pub async fn fetch_optional<DB: DbMarker>(
+        self,
+        storage: &mut Connection<'_, DB>,
+    ) -> DalResult<Option<O>> {
+        let (conn, tags) = storage.conn_and_tags();
+        self.data.fetch(tags, self.query.fetch_optional(conn)).await
+    }
+
+    /// Fetches a single row using this query.
+    pub async fn fetch_one<DB: DbMarker>(self, storage: &mut Connection<'_, DB>) -> DalResult<O> {
+        let (conn, tags) = storage.conn_and_tags();
+        self.data.fetch(tags, self.query.fetch_one(conn)).await
+    }
+}
+
 impl<'q, F, O, A> Instrumented<'_, Map<'q, Postgres, F, A>>
 where
     F: FnMut(PgRow) -> Result<O, sqlx::Error> + Send,
@@ -420,7 +490,7 @@ impl<'a> Instrumented<'a, CopyStatement> {
 
 #[cfg(test)]
 mod tests {
-    use zksync_basic_types::{MiniblockNumber, H256};
+    use zksync_basic_types::{L2BlockNumber, H256};
 
     use super::*;
     use crate::{connection_pool::ConnectionPool, utils::InternalMarker};
@@ -428,13 +498,13 @@ mod tests {
     #[tokio::test]
     async fn instrumenting_erroneous_query() {
         let pool = ConnectionPool::<InternalMarker>::test_pool().await;
-        // Add `vlog::init()` here to debug this test
+        // Add `zksync_vlog::init()` here to debug this test
 
         let mut conn = pool.connection().await.unwrap();
         sqlx::query("WHAT")
             .map(drop)
             .instrument("erroneous")
-            .with_arg("miniblock", &MiniblockNumber(1))
+            .with_arg("l2_block", &L2BlockNumber(1))
             .with_arg("hash", &H256::zero())
             .fetch_optional(&mut conn)
             .await
@@ -444,13 +514,13 @@ mod tests {
     #[tokio::test]
     async fn instrumenting_slow_query() {
         let pool = ConnectionPool::<InternalMarker>::test_pool().await;
-        // Add `vlog::init()` here to debug this test
+        // Add `zksync_vlog::init()` here to debug this test
 
         let mut conn = pool.connection().await.unwrap();
         sqlx::query("SELECT pg_sleep(1.5)")
             .map(drop)
             .instrument("slow")
-            .with_arg("miniblock", &MiniblockNumber(1))
+            .with_arg("l2_block", &L2BlockNumber(1))
             .with_arg("hash", &H256::zero())
             .fetch_optional(&mut conn)
             .await

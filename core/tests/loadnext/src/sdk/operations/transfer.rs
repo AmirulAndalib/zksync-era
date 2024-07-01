@@ -1,12 +1,12 @@
 use zksync_eth_signer::EthereumSigner;
-use zksync_types::{fee::Fee, l2::L2Tx, Address, Nonce, L2_ETH_TOKEN_ADDRESS, U256};
+use zksync_types::{fee::Fee, l2::L2Tx, Address, Nonce, L2_BASE_TOKEN_ADDRESS, U256};
 
 use crate::sdk::{
     error::ClientError,
     ethereum::ierc20_contract,
     operations::SyncTransactionHandle,
     wallet::Wallet,
-    web3::contract::tokens::Tokenize,
+    web3::contract::Tokenize,
     zksync_types::{transaction_request::PaymasterParams, Execute, L2TxCommonData},
     EthNamespaceClient, ZksNamespaceClient,
 };
@@ -150,12 +150,12 @@ where
             .or_else(|| self.paymaster_params.clone())
             .unwrap_or_default();
 
-        let tx = if token.is_zero() || token == L2_ETH_TOKEN_ADDRESS {
+        let tx = if token.is_zero() || token == L2_BASE_TOKEN_ADDRESS {
             // ETH estimate
             Execute {
                 contract_address: to,
                 calldata: Default::default(),
-                factory_deps: None,
+                factory_deps: vec![],
                 value: amount,
             }
         } else {
@@ -163,7 +163,7 @@ where
             Execute {
                 contract_address: token,
                 calldata: create_transfer_calldata(to, amount),
-                factory_deps: None,
+                factory_deps: vec![],
                 value: Default::default(),
             }
         };
